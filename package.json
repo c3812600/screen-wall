@@ -8,11 +8,50 @@
     "start": "electron .",
     "editor": "electron . --editor",
     "smoke": "electron . --smoke-test",
-    "verify": "electron . --verify-renderers"
+    "verify": "electron . --verify-renderers",
+    "dist": "electron-builder --win"
   },
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^45.2.3"
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.c3812600.screenwall",
+    "productName": "屏幕墙",
+    "executableName": "ScreenWall",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "ScreenWall-Setup-${version}.exe",
+      "include": "build/installer.nsh"
+    },
+    "publish": [
+      {
+        "provider": "github"
+      }
+    ]
   }
 }
