@@ -29,6 +29,13 @@ jobs:
           npm run smoke
           npm run verify
 
+      # 先建好 Release，electron-builder 上传时直接复用，
+      # 避免多资产并发 get-or-create 竞态生成多个同 tag Release
+      - name: Create release
+        run: gh release create ${{ github.ref_name }} --verify-tag --title ${{ github.ref_name }} --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build installer and publish release
         run: npx electron-builder --win --publish always
         env:
