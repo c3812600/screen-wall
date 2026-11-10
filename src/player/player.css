@@ -1,0 +1,51 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  cursor: none;
+  user-select: none;
+}
+
+#viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+#stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: #000;
+  transform-origin: 0 0;
+  overflow: hidden;
+}
+
+.comp {
+  position: absolute;
+  overflow: hidden;
+  transform-origin: center center;
+}
+
+.comp > * {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+#hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #555;
+  font: 400 22px system-ui, 'Microsoft YaHei', sans-serif;
+  display: none;
+}

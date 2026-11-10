@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>屏幕墙 · 编辑器</title>
+    <link rel="stylesheet" href="editor.css" />
+  </head>
+  <body>
+    <header id="toolbar">
+      <span class="brand">屏幕墙</span>
+      <button id="btn-new">新建项目</button>
+      <button id="btn-open">打开项目</button>
+      <button id="btn-save">保存</button>
+      <button id="btn-canvas">画布设置</button>
+      <span id="project-meta" class="meta">未打开项目</span>
+      <span id="save-status" class="meta"></span>
+      <button id="btn-quit" class="push">退出</button>
+    </header>
+
+    <main id="layout">
+      <aside id="palette">
+        <h3>组件</h3>
+        <div class="palette-item" draggable="true" data-type="video">
+          <span class="pi-icon">▶</span> 视频
+        </div>
+        <div class="palette-item" draggable="true" data-type="image">
+          <span class="pi-icon">▣</span> 图片
+        </div>
+        <div class="palette-item" draggable="true" data-type="website">
+          <span class="pi-icon">◎</span> 网站
+        </div>
+        <p class="tip">点击添加到画布，或把组件/文件拖到画布上</p>
+        <p class="tip">选中组件后可拖动、缩放、旋转；支持镜像</p>
+      </aside>
+
+      <section id="viewport">
+        <div id="canvas"></div>
+        <div id="drop-mask">松开鼠标放置组件</div>
+        <div id="zoom-bar">
+          <button id="zoom-fit" title="适应窗口">适应</button>
+          <button id="zoom-out" title="缩小">−</button>
+          <span id="zoom-level">100%</span>
+          <button id="zoom-in" title="放大">＋</button>
+        </div>
+      </section>
+
+      <aside id="props">
+        <h3>属性</h3>
+        <div id="props-empty" class="tip">未选中组件</div>
+        <div id="props-form" hidden>
+          <label>类型 <span id="p-type" class="value"></span></label>
+          <label>来源</label>
+          <div class="row">
+            <input id="p-source" type="text" placeholder="文件路径或网址" />
+            <button id="p-browse">浏览…</button>
+          </div>
+          <div class="grid2">
+            <label>X <input id="p-x" type="number" step="1" /></label>
+            <label>Y <input id="p-y" type="number" step="1" /></label>
+            <label>宽 <input id="p-w" type="number" step="1" min="20" /></label>
+            <label>高 <input id="p-h" type="number" step="1" min="20" /></label>
+          </div>
+          <label>旋转 <span id="p-rot-text" class="value">0°</span></label>
+          <input id="p-rotation" type="range" min="0" max="360" step="1" />
+          <div class="row">
+            <button id="p-mirror-x" class="toggle">镜像水平</button>
+            <button id="p-mirror-y" class="toggle">镜像垂直</button>
+          </div>
+          <div id="video-only" hidden>
+            <label class="check">
+              <input id="p-muted" type="checkbox" /> 静音（音量开关）
+            </label>
+            <label>
+              音量 <span id="p-vol-text" class="value">100%</span>
+            </label>
+            <input id="p-volume" type="range" min="0" max="100" step="1" />
+          </div>
+          <div id="web-only" hidden>
+            <label>
+              页面缩放 <span id="p-zoom-text" class="value">100%</span>
+            </label>
+            <input id="p-zoom" type="range" min="25" max="400" step="5" />
+            <p class="tip">网页内容的显示比例（缩放网页本身，不受站点限制）</p>
+          </div>
+          <p class="tip" id="website-note" hidden>
+            提示：部分网站禁止被内嵌显示，遇到空白属正常现象
+          </p>
+          <button id="p-delete" class="danger">删除组件</button>
+        </div>
+      </aside>
+    </main>
+
+    <dialog id="dlg-new">
+      <form method="dialog" id="form-new">
+        <h2>新建项目</h2>
+        <label>项目名称 <input id="new-name" type="text" value="我的屏幕墙" /></label>
+        <label>画布宽度 <input id="new-width" type="number" value="1920" min="160" max="7680" /></label>
+        <label>画布高度 <input id="new-height" type="number" value="1080" min="90" max="4320" /></label>
+        <div class="row">
+          <button type="button" id="new-use-screen">使用屏幕分辨率</button>
+          <span class="tip" id="new-screen-hint"></span>
+        </div>
+        <p class="tip">画布分辨率即输出屏幕的逻辑分辨率（如 1920×1080）</p>
+        <menu>
+          <button value="cancel">取消</button>
+          <button value="ok" id="new-ok" class="primary">创建</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="dlg-canvas">
+      <form method="dialog" id="form-canvas">
+        <h2>画布设置</h2>
+        <label>画布宽度 <input id="cv-width" type="number" min="160" max="7680" /></label>
+        <label>画布高度 <input id="cv-height" type="number" min="90" max="4320" /></label>
+        <div class="row">
+          <button type="button" id="cv-use-screen">使用屏幕分辨率</button>
+          <span class="tip" id="cv-screen-hint"></span>
+        </div>
+        <menu>
+          <button value="cancel">取消</button>
+          <button value="ok" class="primary">应用</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="dlg-open">
+      <div id="open-list-wrap">
+        <h2>打开项目</h2>
+        <div id="open-list"></div>
+        <menu><button value="cancel">关闭</button></menu>
+      </div>
+    </dialog>
+
+    <script src="editor.js"></script>
+  </body>
+</html>
