@@ -140,6 +140,83 @@ h3 {
   font-size: 14px;
 }
 
+/* ---------- 图层面板 ---------- */
+
+.layer-title {
+  margin: 18px 0 8px;
+}
+
+#layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #2f3136;
+  border: 1px solid #43454a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.layer-row:hover {
+  border-color: #4c8dff;
+}
+
+.layer-row.active {
+  border-color: #4c8dff;
+  background: #34373d;
+}
+
+.layer-row.locked .layer-label {
+  color: #8b8e94;
+}
+
+.layer-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.layer-lock {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.layer-lock.on {
+  background: #4c8dff;
+  border-color: #4c8dff;
+  color: #fff;
+}
+
+button:disabled,
+input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 画布上的锁定标记 */
+.comp .lock-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(76, 141, 255, 0.9);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 6;
+}
+
 /* ---------- 画布 ---------- */
 
 #viewport {

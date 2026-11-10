@@ -410,13 +410,130 @@ async function startVerify() {
       `双击应直接选素材: ${dropDbl.source}`,
     );
 
+    // 图层断言：新增第二个组件 → 图层面板 2 行；下移一层后该组件变底层（zIndex 归一化 1..n）
+    const zTest = await editorWin.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const vp = document.getElementById('viewport');
+      const r = vp.getBoundingClientRect();
+      const dt = new DataTransfer();
+      dt.setData('text/plain', JSON.stringify({ kind: 'new', type: 'image' }));
+      vp.dispatchEvent(new DragEvent('drop', {
+        dataTransfer: dt, clientX: r.left + 400, clientY: r.top + 300,
+        bubbles: true, cancelable: true,
+      }));
+      await sleep(50);
+      const rows = document.querySelectorAll('#layer-list .layer-row').length;
+      document.getElementById('p-z-down').click();
+      await sleep(50);
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 's', ctrlKey: true, bubbles: true, cancelable: true,
+      }));
+      await sleep(300);
+      const saved = await window.api.getActiveProject();
+      const byZ = (saved.components || []).slice().sort((a, b) => a.zIndex - b.zIndex);
+      const vw = vp.clientWidth, vh = vp.clientHeight;
+      const s = Math.min((vw - 48) / 1920, (vh - 48) / 1080);
+      const ox = (vw - 1920 * s) / 2;
+      return {
+        rows,
+        zValues: byZ.map((c) => c.zIndex),
+        bottomX: byZ[0] ? byZ[0].x : null,
+        expectBottomX: Math.round((400 - ox) / s - 240),
+        dump: byZ.map((c) => c.id.slice(-4) + '@x' + c.x + ':z' + c.zIndex).join(' | '),
+        sel: (() => {
+          const el = document.querySelector('#canvas .comp.selected');
+          return el ? el.dataset.id.slice(-4) : null;
+        })(),
+        dis: document.getElementById('p-z-down').disabled,
+      };
+    })()`);
+    assert(zTest.rows === 2, `图层面板应有 2 行，实际 ${zTest.rows}`);
+    assert(zTest.zValues.join(',') === '1,2', `zIndex 应归一化为 1,2，实际 ${zTest.zValues.join(',')}`);
+    assert(
+      Math.abs(zTest.bottomX - zTest.expectBottomX) <= 2,
+      `下移一层后新组件应变底层: ${zTest.bottomX} vs ${zTest.expectBottomX} | dump=${zTest.dump} sel=${zTest.sel} dis=${zTest.dis}`,
+    );
+
+    // 锁定断言：锁定后属性禁用、显示标记、拖动不生效
+    const lockTest = await editorWin.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const first = document.querySelector('#canvas .comp');
+      const id = first.dataset.id;
+      const beforeLeft = first.style.left;
+      first.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true, cancelable: true, button: 0, clientX: 50, clientY: 50,
+      }));
+      first.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true, cancelable: true, button: 0, clientX: 50, clientY: 50,
+      }));
+      await sleep(50);
+      document.getElementById('p-lock').click();
+      await sleep(80);
+      const disabled = document.getElementById('p-x').disabled;
+      const lockOn = document.getElementById('p-lock').classList.contains('on');
+      const badge = !!document.querySelector('#canvas .comp.locked .lock-badge');
+      const layerLockOn = !!document.querySelector('#layer-list .layer-lock.on');
+      const cur = document.querySelector('#canvas .comp[data-id="' + id + '"]');
+      cur.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true, cancelable: true, button: 0, clientX: 300, clientY: 300,
+      }));
+      cur.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true, cancelable: true, clientX: 500, clientY: 500,
+      }));
+      cur.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true, cancelable: true, clientX: 500, clientY: 500,
+      }));
+      await sleep(50);
+      const afterLeft = document.querySelector('#canvas .comp[data-id="' + id + '"]').style.left;
+      return { disabled, lockOn, badge, layerLockOn, beforeLeft, afterLeft };
+    })()`);
+    assert(
+      lockTest.disabled === true && lockTest.lockOn === true,
+      `锁定后属性应禁用: ${JSON.stringify(lockTest)}`,
+    );
+    assert(lockTest.badge && lockTest.layerLockOn, '锁定组件应显示锁定标记并同步图层锁状态');
+    assert(
+      lockTest.beforeLeft === lockTest.afterLeft,
+      `锁定后拖动不应生效: ${lockTest.beforeLeft} -> ${lockTest.afterLeft}`,
+    );
+
+    // 快捷键断言：面板点击不添加组件；复制粘贴、撤销、重做
+    const kbTest = await editorWin.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const key = (opts) => window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, opts)));
+      const domCount = () => document.querySelectorAll('#canvas .comp').length;
+      const before = domCount();
+      document.querySelector('.palette-item[data-type="video"]').click();
+      await sleep(50);
+      const afterClick = domCount();
+      const first = document.querySelector('#canvas .comp');
+      first.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 40, clientY: 40 }));
+      first.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, clientX: 40, clientY: 40 }));
+      await sleep(30);
+      key({ key: 'c', ctrlKey: true });
+      key({ key: 'v', ctrlKey: true });
+      await sleep(50);
+      const afterPaste = domCount();
+      key({ key: 'z', ctrlKey: true });
+      await sleep(50);
+      const afterUndo = domCount();
+      key({ key: 'y', ctrlKey: true });
+      await sleep(50);
+      const afterRedo = domCount();
+      return { before, afterClick, afterPaste, afterUndo, afterRedo };
+    })()`);
+    assert(kbTest.afterClick === kbTest.before, `面板点击不应添加组件: ${JSON.stringify(kbTest)}`);
+    assert(kbTest.afterPaste === kbTest.before + 1, `Ctrl+V 应粘贴出新组件: ${JSON.stringify(kbTest)}`);
+    assert(kbTest.afterUndo === kbTest.before, `Ctrl+Z 应撤销粘贴: ${JSON.stringify(kbTest)}`);
+    assert(kbTest.afterRedo === kbTest.before + 1, `Ctrl+Y 应重做粘贴: ${JSON.stringify(kbTest)}`);
+
     // 功能流程：新建 → 视频 + 网站（页面缩放）保存 → 回读校验
     const flow = await editorWin.webContents.executeJavaScript(`(async () => {
       const created = await window.api.createProject({ name: '流程测试', width: 1000, height: 1000 });
       created.components.push({
         id: 't1', type: 'video', source: 'C:\\\\media\\\\demo.mp4',
         x: 10, y: 20, width: 640, height: 360,
-        rotation: 90, mirrorX: true, mirrorY: false, zIndex: 1,
+        rotation: 90, mirrorX: true, mirrorY: false, zIndex: 1, locked: true,
         video: { muted: false, volume: 0.5 }
       });
       created.components.push({
@@ -432,7 +549,7 @@ async function startVerify() {
       return {
         idKept: saved && saved.id === created.id,
         canvas: !!back && back.canvas.width === 1000 && back.canvas.height === 1000,
-        component: c.type === 'video' && c.rotation === 90 && c.mirrorX === true &&
+        component: c.type === 'video' && c.rotation === 90 && c.mirrorX === true && c.locked === true &&
           c.video && c.video.muted === false && c.video.volume === 0.5,
         webZoom: w.type === 'website' && w.web && w.web.zoom === 1.5,
       };

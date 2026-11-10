@@ -115,6 +115,91 @@ function markDirty() {
   $('#save-status').textContent = '有未保存的修改';
 }
 
+/* ---------------- 撤销/重做（快照历史） ---------------- */
+
+const history = { undo: [], redo: [] };
+let lastHistoryPush = 0;
+let clipboard = null;
+
+function snapshot() {
+  return JSON.stringify({ canvas: project.canvas, components: project.components });
+}
+
+function resetHistory() {
+  history.undo.length = 0;
+  history.redo.length = 0;
+  lastHistoryPush = 0;
+}
+
+function pushHistory() {
+  if (!project) return;
+  history.undo.push(snapshot());
+  if (history.undo.length > 100) history.undo.shift();
+  history.redo.length = 0;
+  lastHistoryPush = Date.now();
+}
+
+/** 连续操作（滑杆/数字输入）合并为一步历史 */
+function pushHistoryDebounced() {
+  if (Date.now() - lastHistoryPush < 600) return;
+  pushHistory();
+}
+
+function applySnapshot(json) {
+  const data = JSON.parse(json);
+  project.canvas = data.canvas;
+  project.components = data.components;
+  if (!compById(selectedId)) selectedId = null;
+  renderCanvas();
+  renderProps();
+  markDirty();
+}
+
+function undo() {
+  if (!history.undo.length) return;
+  history.redo.push(snapshot());
+  applySnapshot(history.undo.pop());
+}
+
+function redo() {
+  if (!history.redo.length) return;
+  history.undo.push(snapshot());
+  applySnapshot(history.redo.pop());
+}
+
+function copyComp() {
+  const c = compById(selectedId);
+  if (!c) return;
+  clipboard = JSON.parse(JSON.stringify(c));
+}
+
+function cutComp() {
+  const c = compById(selectedId);
+  if (!c || c.locked) return;
+  copyComp();
+  deleteSelected();
+}
+
+function pasteComp() {
+  if (!clipboard || !project) return;
+  pushHistory();
+  const c = JSON.parse(JSON.stringify(clipboard));
+  c.id = uid();
+  c.x = Math.round(c.x + 20);
+  c.y = Math.round(c.y + 20);
+  c.zIndex = nextZIndex();
+  c.locked = false; // 副本默认解锁，便于直接摆放
+  project.components.push(c);
+  renderCanvas();
+  select(c.id);
+  markDirty();
+}
+
+function duplicateComp() {
+  copyComp();
+  pasteComp();
+}
+
 function renderMeta() {
   if (!project) return;
   const n = (project.components || []).length;
@@ -138,7 +223,8 @@ function sortedComponents() {
 
 function buildCompEl(c) {
   const el = document.createElement('div');
-  el.className = 'comp' + (c.id === selectedId ? ' selected' : '');
+  el.className =
+    'comp' + (c.id === selectedId ? ' selected' : '') + (c.locked ? ' locked' : '');
   el.dataset.id = c.id;
   applyCompStyle(el, c);
 
@@ -181,6 +267,14 @@ function buildCompEl(c) {
   const line = document.createElement('div');
   line.className = 'rot-line';
   el.appendChild(line);
+
+  if (c.locked) {
+    const badge = document.createElement('div');
+    badge.className = 'lock-badge';
+    badge.textContent = '已锁定';
+    el.appendChild(badge);
+    return el; // 锁定组件不显示操作手柄
+  }
 
   for (const h of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rot']) {
     const hd = document.createElement('div');
@@ -300,6 +394,7 @@ function renderCanvas() {
   }
   fitView();
   renderMeta();
+  renderLayers();
 }
 
 /* ---------------- 选中与属性面板 ---------------- */
@@ -310,6 +405,7 @@ function select(id) {
     el.classList.toggle('selected', el.dataset.id === id);
   });
   renderProps();
+  renderLayers();
 }
 
 function updateVideoPreview(c) {
@@ -345,6 +441,18 @@ function renderProps() {
   $('#p-zoom').value = String(zpct);
   $('#p-zoom-text').textContent = `${zpct}%`;
   syncGeomInputs(c);
+
+  // 锁定后除「锁定/解锁」外全部禁用（不可移动和设置）
+  const locked = !!c.locked;
+  for (const sel of [
+    '#p-source', '#p-browse', '#p-x', '#p-y', '#p-w', '#p-h',
+    '#p-rotation', '#p-mirror-x', '#p-mirror-y',
+    '#p-muted', '#p-volume', '#p-zoom', '#p-delete',
+    '#p-z-front', '#p-z-up', '#p-z-down', '#p-z-back',
+  ]) {
+    $(sel).disabled = locked;
+  }
+  $('#p-lock').classList.toggle('on', locked);
 }
 
 function syncGeomInputs(c) {
@@ -367,6 +475,7 @@ canvasEl.addEventListener('pointerdown', (e) => {
   const c = compById(compNode.dataset.id);
   if (!c) return;
   select(c.id);
+  if (c.locked) return; // 锁定：可选中查看，但不可移动/缩放/旋转
 
   const handleEl = e.target.closest('.handle');
   const handle = handleEl ? handleEl.dataset.h : null;
@@ -390,6 +499,7 @@ canvasEl.addEventListener('pointerdown', (e) => {
     startY: e.clientY,
     orig,
     startAngle: 0,
+    pendingHistory: true,
   };
 
   if (mode === 'rotate') {
@@ -409,6 +519,10 @@ canvasEl.addEventListener('pointerdown', (e) => {
 
 canvasEl.addEventListener('pointermove', (e) => {
   if (!dragState) return;
+  if (dragState.pendingHistory) {
+    pushHistory(); // 整个拖动手势合并为一步撤销
+    dragState.pendingHistory = false;
+  }
   const c = compById(dragState.id);
   const el = compEl(dragState.id);
   if (!c || !el) return;
@@ -496,6 +610,7 @@ function addComponent(type, source = '', at = null) {
   };
   if (type === 'video') c.video = { muted: true, volume: 0 };
   if (type === 'website') c.web = { zoom: 1 };
+  pushHistory();
   project.components.push(c);
   renderCanvas();
   select(c.id);
@@ -510,12 +625,108 @@ function addComponentByPath(filePath, at = null) {
 }
 
 function deleteSelected() {
-  if (!selectedId) return;
-  project.components = (project.components || []).filter((c) => c.id !== selectedId);
+  const c = compById(selectedId);
+  if (!c || c.locked) return;
+  pushHistory();
+  project.components = (project.components || []).filter((x) => x.id !== selectedId);
   select(null);
   renderCanvas();
   renderProps();
   markDirty();
+}
+
+/* ---------------- 图层与锁定 ---------------- */
+
+/** 按数组顺序重新编号 zIndex（1..n）。注意：不能按 zIndex 重排，否则会撤销 moveZ 的换位 */
+function normalizeOrder() {
+  project.components.forEach((c, i) => {
+    c.zIndex = i + 1;
+  });
+}
+
+/** 调整叠放顺序：front 置顶 / back 置底 / up 上移一层 / down 下移一层 */
+function moveZ(id, action) {
+  const sorted = sortedComponents();
+  const idx = sorted.findIndex((c) => c.id === id);
+  if (idx < 0) return;
+  const [item] = sorted.splice(idx, 1);
+  let newIdx;
+  switch (action) {
+    case 'front':
+      newIdx = sorted.length;
+      break;
+    case 'back':
+      newIdx = 0;
+      break;
+    case 'up':
+      newIdx = Math.min(idx + 1, sorted.length);
+      break;
+    case 'down':
+      newIdx = Math.max(idx - 1, 0);
+      break;
+    default:
+      newIdx = idx;
+  }
+  sorted.splice(newIdx, 0, item);
+  project.components = sorted;
+  normalizeOrder();
+}
+
+function toggleLock(id) {
+  const c = compById(id);
+  if (!c) return;
+  pushHistory();
+  c.locked = !c.locked;
+  renderCanvas();
+  select(c.id);
+  markDirty();
+}
+
+function compLabel(c) {
+  const t = TYPE_LABEL[c.type] || c.type;
+  let name = String(c.source || '').trim();
+  if (!name) name = '未设置';
+  else if (c.type === 'website' && /^https?:/i.test(name)) {
+    try {
+      name = new URL(name).hostname;
+    } catch {
+      /* 保留原文 */
+    }
+  } else {
+    name = name.replace(/\\/g, '/').split('/').pop();
+  }
+  return `${t} · ${name}`;
+}
+
+function renderLayers() {
+  const wrap = $('#layer-list');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  if (!project) return;
+  const topFirst = sortedComponents().slice().reverse();
+  for (const c of topFirst) {
+    const row = document.createElement('div');
+    row.className =
+      'layer-row' + (c.id === selectedId ? ' active' : '') + (c.locked ? ' locked' : '');
+
+    const label = document.createElement('span');
+    label.className = 'layer-label';
+    label.textContent = compLabel(c);
+
+    const lock = document.createElement('button');
+    lock.className = 'layer-lock' + (c.locked ? ' on' : '');
+    lock.textContent = c.locked ? '解' : '锁';
+    lock.title = c.locked ? '解锁' : '锁定（无法移动和设置）';
+    lock.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleLock(c.id);
+    });
+
+    row.appendChild(label);
+    row.appendChild(lock);
+    row.addEventListener('click', () => select(c.id));
+    wrap.appendChild(row);
+  }
 }
 
 /* ---------------- 工具栏 ---------------- */
@@ -603,6 +814,7 @@ $('#form-new').addEventListener('submit', async (e) => {
     width: Number($('#new-width').value),
     height: Number($('#new-height').value),
   });
+  resetHistory();
   select(null);
   renderCanvas();
   renderProps();
@@ -625,6 +837,7 @@ $('#cv-use-screen').addEventListener('click', () => {
 });
 $('#form-canvas').addEventListener('submit', (e) => {
   if (e.submitter?.value !== 'ok') return;
+  pushHistory();
   project.canvas.width = Math.max(160, Math.min(16384, Number($('#cv-width').value) || project.canvas.width));
   project.canvas.height = Math.max(90, Math.min(16384, Number($('#cv-height').value) || project.canvas.height));
   renderCanvas();
@@ -648,6 +861,7 @@ $('#btn-open').addEventListener('click', async () => {
       if (!data) return;
       await window.api.setActiveProject(item.id);
       project = data;
+      resetHistory();
       select(null);
       renderCanvas();
       renderProps();
@@ -665,6 +879,7 @@ function bindNum(id, apply) {
   $(id).addEventListener('input', () => {
     const c = compById(selectedId);
     if (!c) return;
+    pushHistoryDebounced();
     apply(c, Number($(id).value));
     const el = compEl(c.id);
     if (el) applyCompStyle(el, c);
@@ -680,6 +895,7 @@ bindNum('#p-h', (c, v) => (c.height = Math.max(20, v || c.height)));
 $('#p-source').addEventListener('change', () => {
   const c = compById(selectedId);
   if (!c) return;
+  pushHistory();
   c.source = $('#p-source').value.trim();
   renderCanvas();
   renderProps();
@@ -689,6 +905,7 @@ $('#p-source').addEventListener('change', () => {
 async function browseFor(c) {
   const p = await window.api.openMediaDialog(c.type);
   if (!p) return;
+  pushHistory();
   c.source = p;
   renderCanvas();
   renderProps();
@@ -706,12 +923,13 @@ canvasEl.addEventListener('dblclick', (e) => {
   const compNode = e.target.closest('.comp');
   if (!compNode) return;
   const c = compById(compNode.dataset.id);
-  if (c) browseFor(c);
+  if (c && !c.locked) browseFor(c);
 });
 
 $('#p-rotation').addEventListener('input', () => {
   const c = compById(selectedId);
   if (!c) return;
+  pushHistoryDebounced();
   c.rotation = Number($('#p-rotation').value) || 0;
   $('#p-rot-text').textContent = `${Math.round(c.rotation)}°`;
   const el = compEl(c.id);
@@ -722,6 +940,7 @@ $('#p-rotation').addEventListener('input', () => {
 $('#p-mirror-x').addEventListener('click', () => {
   const c = compById(selectedId);
   if (!c) return;
+  pushHistory();
   c.mirrorX = !c.mirrorX;
   $('#p-mirror-x').classList.toggle('on', c.mirrorX);
   const el = compEl(c.id);
@@ -732,12 +951,33 @@ $('#p-mirror-x').addEventListener('click', () => {
 $('#p-mirror-y').addEventListener('click', () => {
   const c = compById(selectedId);
   if (!c) return;
+  pushHistory();
   c.mirrorY = !c.mirrorY;
   $('#p-mirror-y').classList.toggle('on', c.mirrorY);
   const el = compEl(c.id);
   if (el) applyCompStyle(el, c);
   markDirty();
 });
+
+$('#p-lock').addEventListener('click', () => {
+  if (selectedId) toggleLock(selectedId);
+});
+
+function bindZ(id, action) {
+  $(id).addEventListener('click', () => {
+    const c = compById(selectedId);
+    if (!c || c.locked) return;
+    pushHistory();
+    moveZ(c.id, action);
+    renderCanvas();
+    renderProps();
+    markDirty();
+  });
+}
+bindZ('#p-z-front', 'front');
+bindZ('#p-z-up', 'up');
+bindZ('#p-z-down', 'down');
+bindZ('#p-z-back', 'back');
 
 $('#p-muted').addEventListener('change', () => {
   const c = compById(selectedId);
@@ -751,6 +991,7 @@ $('#p-muted').addEventListener('change', () => {
 $('#p-volume').addEventListener('input', () => {
   const c = compById(selectedId);
   if (!c) return;
+  pushHistoryDebounced();
   c.video = c.video || { muted: true, volume: 0 };
   const pct = Number($('#p-volume').value) || 0;
   c.video.volume = pct / 100;
@@ -766,6 +1007,7 @@ $('#p-volume').addEventListener('input', () => {
 $('#p-zoom').addEventListener('input', () => {
   const c = compById(selectedId);
   if (!c) return;
+  pushHistoryDebounced();
   c.web = c.web || { zoom: 1 };
   const pct = Number($('#p-zoom').value) || 100;
   c.web.zoom = pct / 100;
@@ -779,7 +1021,6 @@ $('#p-delete').addEventListener('click', deleteSelected);
 /* ---------------- 组件面板与拖放 ---------------- */
 
 document.querySelectorAll('.palette-item').forEach((item) => {
-  item.addEventListener('click', () => addComponent(item.dataset.type));
   item.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'new', type: item.dataset.type }));
     e.dataTransfer.effectAllowed = 'copy';
@@ -820,12 +1061,46 @@ viewport.addEventListener('drop', (e) => {
 
 window.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'TEXTAREA'].includes(e.target?.tagName);
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+  const mod = e.ctrlKey || e.metaKey;
+  const k = String(e.key || '').toLowerCase();
+
+  if (mod && k === 's') {
     e.preventDefault();
     saveProject();
     return;
   }
   if (typing) return;
+
+  if (mod && k === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+    return;
+  }
+  if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) {
+    e.preventDefault();
+    redo();
+    return;
+  }
+  if (mod && k === 'c') {
+    e.preventDefault();
+    copyComp();
+    return;
+  }
+  if (mod && k === 'x') {
+    e.preventDefault();
+    cutComp();
+    return;
+  }
+  if (mod && k === 'v') {
+    e.preventDefault();
+    pasteComp();
+    return;
+  }
+  if (mod && k === 'd') {
+    e.preventDefault();
+    duplicateComp();
+    return;
+  }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     deleteSelected();
@@ -845,6 +1120,7 @@ async function init() {
     showStatus('已创建默认项目');
   }
   project = data;
+  resetHistory();
   renderCanvas();
   renderProps();
 }

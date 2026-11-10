@@ -25,7 +25,7 @@ function clampInt(value, min, max, fallback) {
  *   canvas: { width, height },
  *   components: [{
  *     id, type: 'video'|'image'|'website', source,
- *     x, y, width, height, rotation, mirrorX, mirrorY, zIndex,
+ *     x, y, width, height, rotation, mirrorX, mirrorY, zIndex, locked,
  *     video: { muted, volume }        // 仅 video
  *     web: { zoom }                   // 仅 website，页面缩放（1 = 100%）
  *   }],

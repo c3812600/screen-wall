@@ -29,8 +29,11 @@
         <div class="palette-item" draggable="true" data-type="website">
           <span class="pi-icon">◎</span> 网站
         </div>
-        <p class="tip">点击添加到画布，或把组件/文件拖到画布上</p>
-        <p class="tip">选中组件后可拖动、缩放、旋转；支持镜像</p>
+        <p class="tip">把组件或文件拖到画布上添加</p>
+        <p class="tip">快捷键：Ctrl+C/X/V/D 复制剪切粘贴再制，Ctrl+Z / Ctrl+Y 撤销重做，Ctrl+S 保存，Delete 删除</p>
+        <h3 class="layer-title">图层</h3>
+        <div id="layer-list"></div>
+        <p class="tip">顶层在上；点击选中，「锁」锁定后组件不可移动和设置</p>
       </aside>
 
       <section id="viewport">
@@ -65,6 +68,16 @@
           <div class="row">
             <button id="p-mirror-x" class="toggle">镜像水平</button>
             <button id="p-mirror-y" class="toggle">镜像垂直</button>
+          </div>
+          <label>图层顺序</label>
+          <div class="row">
+            <button id="p-z-front" title="置于顶层">置顶</button>
+            <button id="p-z-up" title="上移一层">上移</button>
+            <button id="p-z-down" title="下移一层">下移</button>
+            <button id="p-z-back" title="置于底层">置底</button>
+          </div>
+          <div class="row">
+            <button id="p-lock" class="toggle" title="锁定后无法移动和设置">锁定</button>
           </div>
           <div id="video-only" hidden>
             <label class="check">
