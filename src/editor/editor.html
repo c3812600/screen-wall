@@ -94,12 +94,13 @@
       <form method="dialog" id="form-new">
         <h2>新建项目</h2>
         <label>项目名称 <input id="new-name" type="text" value="我的屏幕墙" /></label>
-        <label>画布宽度 <input id="new-width" type="number" value="1920" min="160" max="7680" /></label>
-        <label>画布高度 <input id="new-height" type="number" value="1080" min="90" max="4320" /></label>
+        <label>画布宽度 <input id="new-width" type="number" value="1920" min="160" max="16384" /></label>
+        <label>画布高度 <input id="new-height" type="number" value="1080" min="90" max="16384" /></label>
         <div class="row">
-          <button type="button" id="new-use-screen">使用屏幕分辨率</button>
-          <span class="tip" id="new-screen-hint"></span>
+          <select id="new-screen-presets" title="显示器与拼接预设"></select>
+          <button type="button" id="new-use-screen">当前屏幕</button>
         </div>
+        <p class="tip" id="new-screen-hint"></p>
         <p class="tip">画布分辨率即输出屏幕的逻辑分辨率（如 1920×1080）</p>
         <menu>
           <button value="cancel">取消</button>
@@ -111,12 +112,13 @@
     <dialog id="dlg-canvas">
       <form method="dialog" id="form-canvas">
         <h2>画布设置</h2>
-        <label>画布宽度 <input id="cv-width" type="number" min="160" max="7680" /></label>
-        <label>画布高度 <input id="cv-height" type="number" min="90" max="4320" /></label>
+        <label>画布宽度 <input id="cv-width" type="number" min="160" max="16384" /></label>
+        <label>画布高度 <input id="cv-height" type="number" min="90" max="16384" /></label>
         <div class="row">
-          <button type="button" id="cv-use-screen">使用屏幕分辨率</button>
-          <span class="tip" id="cv-screen-hint"></span>
+          <select id="cv-screen-presets" title="显示器与拼接预设"></select>
+          <button type="button" id="cv-use-screen">当前屏幕</button>
         </div>
+        <p class="tip" id="cv-screen-hint"></p>
         <menu>
           <button value="cancel">取消</button>
           <button value="ok" class="primary">应用</button>

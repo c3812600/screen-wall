@@ -1,9 +1,19 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  ipcMain,
+  nativeImage,
+  dialog,
+  screen,
+} = require('electron');
 const path = require('node:path');
 const os = require('node:os');
 const ConfigStore = require('./config');
+const { listDisplayRegions, pickDisplayRegion } = require('./display');
 
 const SMOKE = process.argv.includes('--smoke-test');
 const VERIFY = process.argv.includes('--verify-renderers');
@@ -43,10 +53,29 @@ function windowWebPrefs() {
   };
 }
 
+/**
+ * 播放器放置：
+ * - 找到与画布物理分辨率精确匹配的显示器区域（单屏或无缝拼接）→ 无边框铺满该区域（跨屏）
+ * - 无匹配 → 单显示器全屏（回退）
+ */
+function applyPlayerPlacement() {
+  if (HEADLESS || !playerWin || playerWin.isDestroyed()) return;
+  const project = store.readActiveProject();
+  const region = pickDisplayRegion(screen.getAllDisplays(), project && project.canvas);
+  if (region) {
+    if (playerWin.isFullScreen()) playerWin.setFullScreen(false);
+    playerWin.setBounds(region.dipBounds);
+    playerWin.setAlwaysOnTop(true);
+  } else {
+    playerWin.setAlwaysOnTop(false);
+    if (!playerWin.isFullScreen()) playerWin.setFullScreen(true);
+  }
+}
+
 function createPlayer() {
   playerWin = new BrowserWindow({
     show: false,
-    fullscreen: !HEADLESS,
+    fullscreen: false,
     frame: false,
     autoHideMenuBar: true,
     backgroundColor: '#000000',
@@ -55,6 +84,7 @@ function createPlayer() {
   });
   playerWin.loadFile(path.join(__dirname, 'player', 'player.html'));
   playerWin.once('ready-to-show', () => {
+    applyPlayerPlacement();
     if (!HEADLESS) playerWin.show();
   });
   playerWin.on('closed', () => {
@@ -109,7 +139,10 @@ function buildTray() {
 function broadcastProject() {
   if (!playerWin) return;
   playerWin.webContents.send('project:changed', store.readActiveProject());
+  applyPlayerPlacement();
 }
+
+ipcMain.handle('displays:layout', () => listDisplayRegions(screen.getAllDisplays()));
 
 ipcMain.handle('projects:list', () => store.listProjects());
 ipcMain.handle('projects:active', () => store.readActiveProject());
@@ -133,6 +166,11 @@ ipcMain.handle('projects:setActive', (_event, id) => {
 });
 
 ipcMain.handle('dialog:openMedia', async (_event, type) => {
+  // 自检模式返回固定路径，避免弹出真实对话框阻塞自动化
+  if (HEADLESS) {
+    const ext = type === 'image' ? 'png' : type === 'video' ? 'mp4' : 'html';
+    return `C:\\media\\picked-demo.${ext}`;
+  }
   const filters =
     type === 'video'
       ? [{ name: '视频', extensions: ['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'] }]
@@ -196,6 +234,48 @@ async function startVerify() {
   await wait(2500);
 
   try {
+    // 跨屏匹配算法断言（纯函数，覆盖单屏/拼接/高 DPI/缺口/混合缩放/纵向）
+    {
+      const two1080 = [
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { bounds: { x: 1920, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+      ];
+      const joined = pickDisplayRegion(two1080, { width: 3840, height: 1080 });
+      assert(
+        !!joined && joined.dipBounds.width === 3840 && joined.dipBounds.height === 1080,
+        `双屏拼接 3840×1080 匹配失败: ${JSON.stringify(joined)}`,
+      );
+      assert(!!pickDisplayRegion(two1080, { width: 1920, height: 1080 }), '单屏 1920×1080 匹配失败');
+      assert(pickDisplayRegion(two1080, { width: 2560, height: 1440 }) === null, '尺寸不符时应无匹配');
+
+      const hidpi = [
+        { bounds: { x: 0, y: 0, width: 1536, height: 864 }, scaleFactor: 1.25 },
+        { bounds: { x: 1536, y: 0, width: 1536, height: 864 }, scaleFactor: 1.25 },
+      ];
+      assert(!!pickDisplayRegion(hidpi, { width: 3840, height: 1080 }), '高 DPI 拼接匹配失败');
+
+      const gapped = [
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { bounds: { x: 2000, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+      ];
+      assert(pickDisplayRegion(gapped, { width: 3840, height: 1080 }) === null, '存在缺口时不应匹配');
+
+      const mixed = [
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { bounds: { x: 1920, y: 0, width: 1536, height: 864 }, scaleFactor: 1.25 },
+      ];
+      assert(pickDisplayRegion(mixed, { width: 3840, height: 1080 }) === null, '混合缩放比不应匹配');
+
+      const stacked = [
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { bounds: { x: 0, y: 1080, width: 1920, height: 1080 }, scaleFactor: 1 },
+      ];
+      assert(!!pickDisplayRegion(stacked, { width: 1920, height: 2160 }), '纵向拼接匹配失败');
+
+      const regions = listDisplayRegions(two1080);
+      assert(regions.length === 3, `双屏应输出 3 个区域（2 单屏 + 1 拼接），实际 ${regions.length}`);
+    }
+
     // 正向断言：页面骨架
     const editorDom = await editorWin.webContents.executeJavaScript(`({
       palettes: document.querySelectorAll('.palette-item').length,
@@ -243,6 +323,56 @@ async function startVerify() {
     })()`);
     assert(zoom.afterWheel !== zoom.before, '滚轮缩放未生效');
     assert(zoom.afterPan !== zoom.afterWheel, '拖拽平移未生效');
+
+    // 功能断言：拖放落在鼠标位置、双击直接选素材（HEADLESS 下对话框返回固定路径）
+    const dropDbl = await editorWin.webContents.executeJavaScript(`(async () => {
+      document.getElementById('zoom-fit').click();
+      await new Promise((res) => setTimeout(res, 50));
+      const vp = document.getElementById('viewport');
+      const r = vp.getBoundingClientRect();
+      const dt = new DataTransfer();
+      dt.setData('text/plain', JSON.stringify({ kind: 'new', type: 'image' }));
+      vp.dispatchEvent(new DragEvent('drop', {
+        dataTransfer: dt, clientX: r.left + 200, clientY: r.top + 150,
+        bubbles: true, cancelable: true,
+      }));
+      await new Promise((res) => setTimeout(res, 50));
+      const comp = document.querySelector('#canvas .comp');
+      comp.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+      await new Promise((res) => setTimeout(res, 150));
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 's', ctrlKey: true, bubbles: true, cancelable: true,
+      }));
+      await new Promise((res) => setTimeout(res, 300));
+      const saved = await window.api.getActiveProject();
+      const c = (saved.components || [])[0] || {};
+      // 期望坐标 = 编辑器 clientToCanvas 同一公式（初始项目 1920×1080，适应窗口后）
+      const vw = vp.clientWidth;
+      const vh = vp.clientHeight;
+      const s = Math.min((vw - 48) / 1920, (vh - 48) / 1080);
+      const ox = (vw - 1920 * s) / 2;
+      const oy = (vh - 1080 * s) / 2;
+      return {
+        count: (saved.components || []).length,
+        type: c.type,
+        x: c.x, y: c.y,
+        ex: Math.round((200 - ox) / s - 240),
+        ey: Math.round((150 - oy) / s - 135),
+        source: c.source,
+      };
+    })()`);
+    assert(
+      dropDbl.count === 1 && dropDbl.type === 'image',
+      `拖放后应新增 1 个图片组件: ${JSON.stringify(dropDbl)}`,
+    );
+    assert(
+      Math.abs(dropDbl.x - dropDbl.ex) <= 2 && Math.abs(dropDbl.y - dropDbl.ey) <= 2,
+      `拖放位置应落在鼠标处: got ${dropDbl.x},${dropDbl.y} expect ${dropDbl.ex},${dropDbl.ey}`,
+    );
+    assert(
+      String(dropDbl.source).endsWith('picked-demo.png'),
+      `双击应直接选素材: ${dropDbl.source}`,
+    );
 
     // 功能流程：新建 → 视频 + 网站（页面缩放）保存 → 回读校验
     const flow = await editorWin.webContents.executeJavaScript(`(async () => {

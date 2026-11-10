@@ -417,7 +417,8 @@ dialog label {
   color: #b6b8bd;
 }
 
-dialog input {
+dialog input,
+dialog select {
   width: 100%;
   background: #1a1b1e;
   color: #e8e8e8;
@@ -425,6 +426,12 @@ dialog input {
   border-radius: 6px;
   padding: 7px 9px;
   font: inherit;
+}
+
+.row select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
 }
 
 dialog menu {

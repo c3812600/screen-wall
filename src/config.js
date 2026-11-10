@@ -112,8 +112,8 @@ class ConfigStore {
       id: crypto.randomUUID(),
       name: String(name || '未命名项目').trim().slice(0, 60) || '未命名项目',
       canvas: {
-        width: clampInt(width, 160, 7680, 1920),
-        height: clampInt(height, 90, 4320, 1080),
+        width: clampInt(width, 160, 16384, 1920),
+        height: clampInt(height, 90, 16384, 1080),
       },
       components: [],
       createdAt: nowIso(),
@@ -130,8 +130,8 @@ class ConfigStore {
       id: String(project.id),
       name: String(project.name || '未命名项目').trim().slice(0, 60) || '未命名项目',
       canvas: {
-        width: clampInt(project.canvas?.width, 160, 7680, 1920),
-        height: clampInt(project.canvas?.height, 90, 4320, 1080),
+        width: clampInt(project.canvas?.width, 160, 16384, 1920),
+        height: clampInt(project.canvas?.height, 90, 16384, 1080),
       },
       components: Array.isArray(project.components) ? project.components : [],
       createdAt: project.createdAt || nowIso(),

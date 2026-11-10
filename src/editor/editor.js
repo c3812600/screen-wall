@@ -82,6 +82,15 @@ function canvasPointToScreen(px, py) {
   };
 }
 
+/** 屏幕坐标 → 画布坐标（考虑当前缩放/平移视图） */
+function clientToCanvas(clientX, clientY) {
+  const rect = viewport.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left - view.ox) / view.scale,
+    y: (clientY - rect.top - view.oy) / view.scale,
+  };
+}
+
 function rotateVec(x, y, deg) {
   const r = (deg * Math.PI) / 180;
   return {
@@ -456,16 +465,27 @@ canvasEl.addEventListener('pointerup', () => {
 
 /* ---------------- 增删组件 ---------------- */
 
-function addComponent(type, source = '') {
+function addComponent(type, source = '', at = null) {
   const w = type === 'website' ? 640 : 480;
   const h = type === 'website' ? 400 : 270;
-  const offset = ((project.components || []).length % 5) * 40;
+  let x;
+  let y;
+  if (at) {
+    // 拖放：组件中心落在鼠标位置
+    x = Math.round(at.x - w / 2);
+    y = Math.round(at.y - h / 2);
+  } else {
+    // 点击添加：画布中心，多次添加错开
+    const offset = ((project.components || []).length % 5) * 40;
+    x = Math.round((project.canvas.width - w) / 2 + offset);
+    y = Math.round((project.canvas.height - h) / 2 + offset);
+  }
   const c = {
     id: uid(),
     type,
     source,
-    x: Math.round((project.canvas.width - w) / 2 + offset),
-    y: Math.round((project.canvas.height - h) / 2 + offset),
+    x,
+    y,
     width: w,
     height: h,
     rotation: 0,
@@ -481,11 +501,11 @@ function addComponent(type, source = '') {
   markDirty();
 }
 
-function addComponentByPath(filePath) {
+function addComponentByPath(filePath, at = null) {
   const ext = String(filePath).split('.').pop().toLowerCase();
   const type = EXT_TYPE[ext];
   if (!type) return;
-  addComponent(type, filePath);
+  addComponent(type, filePath, at);
 }
 
 function deleteSelected() {
@@ -524,14 +544,49 @@ function screenSize() {
 
 function screenHintText() {
   const s = screenSize();
-  return `当前屏幕：${s.w}×${s.h}`;
+  return `当前屏幕：${s.w}×${s.h}；下拉可选显示器拼接组合（如 2 块 1920×1080 = 3840×1080），播放器将自动跨屏铺满`;
 }
+
+async function fillScreenPresets(selectId) {
+  const el = $(selectId);
+  if (!el) return;
+  el.innerHTML = '';
+  try {
+    const regions = await window.api.listDisplayRegions();
+    for (const r of regions) {
+      const opt = document.createElement('option');
+      opt.value = `${r.width}x${r.height}`;
+      opt.textContent = r.label;
+      el.appendChild(opt);
+    }
+    if (!regions.length) throw new Error('no regions');
+  } catch {
+    const s = screenSize();
+    const opt = document.createElement('option');
+    opt.value = `${s.w}x${s.h}`;
+    opt.textContent = `当前屏幕（${s.w}×${s.h}）`;
+    el.appendChild(opt);
+  }
+}
+
+function bindPresetSelect(selectId, widthId, heightId) {
+  $(selectId).addEventListener('change', () => {
+    const [w, h] = String($(selectId).value).split('x');
+    if (!w || !h) return;
+    $(widthId).value = w;
+    $(heightId).value = h;
+  });
+}
+
+bindPresetSelect('#new-screen-presets', '#new-width', '#new-height');
+bindPresetSelect('#cv-screen-presets', '#cv-width', '#cv-height');
 
 $('#btn-new').addEventListener('click', () => {
   const s = screenSize();
   $('#new-width').value = String(s.w);
   $('#new-height').value = String(s.h);
   $('#new-screen-hint').textContent = screenHintText();
+  fillScreenPresets('#new-screen-presets');
   $('#dlg-new').showModal();
 });
 
@@ -558,6 +613,7 @@ $('#btn-canvas').addEventListener('click', () => {
   $('#cv-width').value = String(project.canvas.width);
   $('#cv-height').value = String(project.canvas.height);
   $('#cv-screen-hint').textContent = screenHintText();
+  fillScreenPresets('#cv-screen-presets');
   $('#dlg-canvas').showModal();
 });
 
@@ -568,8 +624,8 @@ $('#cv-use-screen').addEventListener('click', () => {
 });
 $('#form-canvas').addEventListener('submit', (e) => {
   if (e.submitter?.value !== 'ok') return;
-  project.canvas.width = Math.max(160, Math.min(7680, Number($('#cv-width').value) || project.canvas.width));
-  project.canvas.height = Math.max(90, Math.min(4320, Number($('#cv-height').value) || project.canvas.height));
+  project.canvas.width = Math.max(160, Math.min(16384, Number($('#cv-width').value) || project.canvas.width));
+  project.canvas.height = Math.max(90, Math.min(16384, Number($('#cv-height').value) || project.canvas.height));
   renderCanvas();
   renderProps();
   markDirty();
@@ -629,15 +685,27 @@ $('#p-source').addEventListener('change', () => {
   markDirty();
 });
 
-$('#p-browse').addEventListener('click', async () => {
-  const c = compById(selectedId);
-  if (!c) return;
+async function browseFor(c) {
   const p = await window.api.openMediaDialog(c.type);
   if (!p) return;
   c.source = p;
   renderCanvas();
   renderProps();
   markDirty();
+}
+
+$('#p-browse').addEventListener('click', () => {
+  const c = compById(selectedId);
+  if (c) browseFor(c);
+});
+
+// 双击组件直接弹出素材选择窗口
+canvasEl.addEventListener('dblclick', (e) => {
+  if (e.target.closest('.handle')) return;
+  const compNode = e.target.closest('.comp');
+  if (!compNode) return;
+  const c = compById(compNode.dataset.id);
+  if (c) browseFor(c);
 });
 
 $('#p-rotation').addEventListener('input', () => {
@@ -730,17 +798,18 @@ viewport.addEventListener('drop', (e) => {
   e.preventDefault();
   viewport.classList.remove('drag-over');
 
+  const at = clientToCanvas(e.clientX, e.clientY);
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (file) {
     const p = window.api.getPathForFile(file);
     if (p) {
-      addComponentByPath(p);
+      addComponentByPath(p, at);
       return;
     }
   }
   try {
     const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-    if (data && data.kind === 'new') addComponent(data.type);
+    if (data && data.kind === 'new') addComponent(data.type, '', at);
   } catch {
     /* 忽略非组件拖放 */
   }
