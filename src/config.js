@@ -22,7 +22,7 @@ function clampInt(value, min, max, fallback) {
  * 项目文件 schema (version 1)：
  * {
  *   version: 1, id, name,
- *   canvas: { width, height },
+ *   canvas: { width, height, auto?, layout? }   // auto=自动模式（按显示器联合布局），layout 为布局快照
  *   components: [{
  *     id, type: 'video'|'image'|'website', source,
  *     x, y, width, height, rotation, mirrorX, mirrorY, zIndex, locked,
@@ -106,16 +106,21 @@ class ConfigStore {
     return list.length ? this.loadProject(list[0].id) : null;
   }
 
-  createProject({ name, width, height } = {}) {
+  createProject({ name, width, height, auto, layout } = {}) {
     this.ensure();
+    const canvas = {
+      width: clampInt(width, 160, 16384, 1920),
+      height: clampInt(height, 90, 16384, 1080),
+    };
+    if (auto) {
+      canvas.auto = true;
+      if (layout) canvas.layout = layout;
+    }
     const project = {
       version: 1,
       id: crypto.randomUUID(),
       name: String(name || '未命名项目').trim().slice(0, 60) || '未命名项目',
-      canvas: {
-        width: clampInt(width, 160, 16384, 1920),
-        height: clampInt(height, 90, 16384, 1080),
-      },
+      canvas,
       components: [],
       createdAt: nowIso(),
       updatedAt: nowIso(),
@@ -126,14 +131,19 @@ class ConfigStore {
 
   saveProject(project) {
     if (!project || !project.id) throw new Error('项目缺少 id');
+    const canvas = {
+      width: clampInt(project.canvas?.width, 160, 16384, 1920),
+      height: clampInt(project.canvas?.height, 90, 16384, 1080),
+    };
+    if (project.canvas?.auto) {
+      canvas.auto = true;
+      if (project.canvas.layout) canvas.layout = project.canvas.layout;
+    }
     const saved = {
       version: 1,
       id: String(project.id),
       name: String(project.name || '未命名项目').trim().slice(0, 60) || '未命名项目',
-      canvas: {
-        width: clampInt(project.canvas?.width, 160, 16384, 1920),
-        height: clampInt(project.canvas?.height, 90, 16384, 1080),
-      },
+      canvas,
       components: Array.isArray(project.components) ? project.components : [],
       createdAt: project.createdAt || nowIso(),
       updatedAt: nowIso(),

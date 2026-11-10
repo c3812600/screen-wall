@@ -88,11 +88,12 @@ function fitStage() {
   stage.style.width = cw + 'px';
   stage.style.height = ch + 'px';
 
-  // 窗口尺寸与画布接近（已按显示器区域铺满）→ 精确填满，
-  // 画布坐标与屏幕像素 1:1 对应，消除居中留白带来的整体偏移
+  // 自动模式（画布即全部显示器联合区域）：始终按窗口精确铺满，1:1 映射
+  // 窗口尺寸与画布接近（已按显示器区域铺满）同理：精确填满，消除居中留白偏移
+  const isAuto = !!project.canvas.auto;
   const nearW = Math.abs(vw - cw) <= Math.max(8, Math.round(cw * 0.02));
   const nearH = Math.abs(vh - ch) <= Math.max(8, Math.round(ch * 0.02));
-  if (nearW && nearH) {
+  if (isAuto || (nearW && nearH)) {
     stage.style.transform = `translate(0px, 0px) scale(${vw / cw}, ${vh / ch})`;
     return;
   }
@@ -127,6 +128,7 @@ function render(next) {
 
 /** 画布未匹配到显示器区域时给出诊断提示，便于排查排列/缩放设置 */
 async function updatePlacementHint() {
+  if (project.canvas.auto) return; // 自动模式恒铺满联合区域，无需匹配
   try {
     const matched = await window.api.matchDisplayRegion(project.canvas);
     if (matched) return;

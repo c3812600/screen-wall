@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   getPathForFile: (file) => webUtils.getPathForFile(file),
   listDisplayRegions: () => ipcRenderer.invoke('displays:layout'),
+  describeDisplayLayout: () => ipcRenderer.invoke('displays:describe'),
   matchDisplayRegion: (canvas) => ipcRenderer.invoke('displays:match', canvas),
   listProjects: () => ipcRenderer.invoke('projects:list'),
   getActiveProject: () => ipcRenderer.invoke('projects:active'),

@@ -13,7 +13,7 @@ const {
 const path = require('node:path');
 const os = require('node:os');
 const ConfigStore = require('./config');
-const { listDisplayRegions, pickDisplayRegion } = require('./display');
+const { listDisplayRegions, pickDisplayRegion, describeDisplayLayout } = require('./display');
 
 const SMOKE = process.argv.includes('--smoke-test');
 const VERIFY = process.argv.includes('--verify-renderers');
@@ -61,7 +61,20 @@ function windowWebPrefs() {
 function applyPlayerPlacement() {
   if (HEADLESS || !playerWin || playerWin.isDestroyed()) return;
   const project = store.readActiveProject();
-  const region = pickDisplayRegion(screen.getAllDisplays(), project && project.canvas);
+  const canvas = project && project.canvas;
+
+  // 自动模式：铺满全部显示器的联合区域（含方向与错位），1:1 映射
+  if (canvas && canvas.auto) {
+    const layout = describeDisplayLayout(screen.getAllDisplays());
+    if (layout) {
+      if (playerWin.isFullScreen()) playerWin.setFullScreen(false);
+      playerWin.setBounds(layout.bounds);
+      playerWin.setAlwaysOnTop(true);
+      return;
+    }
+  }
+
+  const region = pickDisplayRegion(screen.getAllDisplays(), canvas);
   if (region) {
     if (playerWin.isFullScreen()) playerWin.setFullScreen(false);
     playerWin.setBounds(region.dipBounds);
@@ -159,6 +172,7 @@ function broadcastProject() {
 }
 
 ipcMain.handle('displays:layout', () => listDisplayRegions(screen.getAllDisplays()));
+ipcMain.handle('displays:describe', () => describeDisplayLayout(screen.getAllDisplays()));
 ipcMain.handle('displays:match', (_event, canvas) =>
   pickDisplayRegion(screen.getAllDisplays(), canvas),
 );
@@ -299,6 +313,21 @@ async function startVerify() {
 
       const regions = listDisplayRegions(two1080);
       assert(regions.length === 3, `双屏应输出 3 个区域（2 单屏 + 1 拼接），实际 ${regions.length}`);
+
+      // 自动模式：联合布局须涵盖方向与错位（横屏 + 竖屏混排场景）
+      const layout = describeDisplayLayout([
+        { bounds: { x: 0, y: 300, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { bounds: { x: 1920, y: 0, width: 1080, height: 1920 }, scaleFactor: 1 },
+      ]);
+      assert(
+        layout && layout.width === 3000 && layout.height === 1920,
+        `混排布局联合尺寸应为 3000×1920: ${JSON.stringify(layout)}`,
+      );
+      assert(
+        layout.screens[0].x === 0 && layout.screens[0].y === 300 &&
+          layout.screens[1].x === 1920 && layout.screens[1].y === 0,
+        `布局坐标归一化错误: ${JSON.stringify(layout.screens)}`,
+      );
     }
 
     // 正向断言：页面骨架
@@ -575,6 +604,27 @@ async function startVerify() {
     );
     assert(helpTest.kbdCount >= 10, `帮助内容键位标注应齐全: ${JSON.stringify(helpTest)}`);
 
+    // 画布模式断言：自动模式禁用分辨率输入并显示布局信息
+    const modeTest = await editorWin.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      document.getElementById('btn-canvas').click();
+      await sleep(30);
+      document.getElementById('cv-mode-auto').click();
+      await sleep(150);
+      const disabled = document.getElementById('cv-width').disabled && document.getElementById('cv-height').disabled;
+      const autoOn = document.getElementById('cv-mode-auto').classList.contains('on');
+      const hint = document.getElementById('cv-screen-hint').textContent;
+      document.getElementById('cv-mode-fixed').click();
+      await sleep(30);
+      const enabled = !document.getElementById('cv-width').disabled;
+      document.getElementById('dlg-canvas').close();
+      return { disabled, autoOn, hintLen: hint.length, enabled };
+    })()`);
+    assert(
+      modeTest.disabled && modeTest.autoOn && modeTest.hintLen > 5 && modeTest.enabled,
+      `画布模式切换未生效: ${JSON.stringify(modeTest)}`,
+    );
+
     // 功能流程：新建 → 视频 + 网站（页面缩放）保存 → 回读校验
     const flow = await editorWin.webContents.executeJavaScript(`(async () => {
       const created = await window.api.createProject({ name: '流程测试', width: 1000, height: 1000 });
@@ -664,6 +714,36 @@ async function startVerify() {
     assert(
       Math.abs(boxed.w - 500) <= 2 && Math.abs(boxed.h - 500) <= 2,
       `窗口差异大时应等比缩放: ${JSON.stringify(boxed)}`,
+    );
+
+    // 自动模式：保存回读 + 播放器按窗口精确铺满（与画布尺寸不同也 1:1 映射）
+    const autoFlow = await editorWin.webContents.executeJavaScript(`(async () => {
+      const created = await window.api.createProject({ name: '自动布局', width: 1200, height: 300 });
+      created.canvas = {
+        width: 1200, height: 300, auto: true,
+        layout: { width: 1200, height: 300, screens: [{ x: 0, y: 0, width: 1200, height: 300, label: '显示器1' }] },
+      };
+      created.components.push({
+        id: 'a1', type: 'image', source: 'x.png',
+        x: 0, y: 0, width: 100, height: 100,
+        rotation: 0, mirrorX: false, mirrorY: false, zIndex: 1, fit: 'cover',
+      });
+      await window.api.saveProject(created);
+      const back = await window.api.getActiveProject();
+      return back.canvas;
+    })()`);
+    assert(
+      autoFlow.auto === true && autoFlow.layout && autoFlow.layout.screens.length === 1 && autoFlow.width === 1200,
+      `自动布局保存回读不符: ${JSON.stringify(autoFlow)}`,
+    );
+    await wait(500);
+    const autoStage = await playerWin.webContents.executeJavaScript(`(() => {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      return { w: r.width, h: r.height, vw: window.innerWidth, vh: window.innerHeight };
+    })()`);
+    assert(
+      Math.abs(autoStage.w - autoStage.vw) <= 2 && Math.abs(autoStage.h - autoStage.vh) <= 2,
+      `自动模式应按窗口精确铺满: ${JSON.stringify(autoStage)}`,
     );
 
     // 回归断言：关闭播放器后「显示播放器」应能重建窗口

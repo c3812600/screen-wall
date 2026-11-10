@@ -214,7 +214,10 @@ function duplicateComp() {
 function renderMeta() {
   if (!project) return;
   const n = (project.components || []).length;
-  $('#project-meta').textContent = `${project.name} · ${project.canvas.width}×${project.canvas.height} · ${n} 个组件`;
+  const size = `${project.canvas.width}×${project.canvas.height}`;
+  $('#project-meta').textContent = project.canvas.auto
+    ? `${project.name} · 自动布局 ${size} · ${n} 个组件`
+    : `${project.name} · ${size} · ${n} 个组件`;
 }
 
 function applyCompStyle(el, c) {
@@ -402,6 +405,24 @@ function renderCanvas() {
   if (!project) return;
   canvasEl.style.width = project.canvas.width + 'px';
   canvasEl.style.height = project.canvas.height + 'px';
+
+  // 自动模式：画出显示器区域参考线（组件可拖到对应显示器上编辑）
+  const layout = project.canvas.auto ? project.canvas.layout : null;
+  if (layout && Array.isArray(layout.screens)) {
+    for (const s of layout.screens) {
+      const g = document.createElement('div');
+      g.className = 'screen-guide';
+      g.style.left = (Number(s.x) || 0) + 'px';
+      g.style.top = (Number(s.y) || 0) + 'px';
+      g.style.width = (Number(s.width) || 0) + 'px';
+      g.style.height = (Number(s.height) || 0) + 'px';
+      const tag = document.createElement('span');
+      tag.textContent = s.label || '';
+      g.appendChild(tag);
+      canvasEl.appendChild(g);
+    }
+  }
+
   for (const c of sortedComponents()) {
     canvasEl.appendChild(buildCompEl(c));
   }
@@ -818,12 +839,45 @@ function bindPresetSelect(selectId, widthId, heightId) {
 bindPresetSelect('#new-screen-presets', '#new-width', '#new-height');
 bindPresetSelect('#cv-screen-presets', '#cv-width', '#cv-height');
 
+/** 画布模式：固定分辨率 / 自动（按显示器联合布局，含方向与错位） */
+async function applyCanvasMode(prefix, auto) {
+  $(`#${prefix}-mode-fixed`).classList.toggle('on', !auto);
+  $(`#${prefix}-mode-auto`).classList.toggle('on', auto);
+  $(`#${prefix}-width`).disabled = auto;
+  $(`#${prefix}-height`).disabled = auto;
+  const presets = $(`#${prefix}-screen-presets`);
+  if (presets) presets.disabled = auto;
+  const useBtn = $(`#${prefix}-use-screen`);
+  if (useBtn) useBtn.disabled = auto;
+  if (!auto) return;
+
+  const layout = await window.api.describeDisplayLayout();
+  if (layout) {
+    $(`#${prefix}-width`).value = String(layout.width);
+    $(`#${prefix}-height`).value = String(layout.height);
+    const names = layout.screens
+      .map((s) => `${s.label}（${s.width}×${s.height}${s.height > s.width ? ' 竖屏' : ''}）`)
+      .join('、');
+    $(`#${prefix}-screen-hint`).textContent = `自动布局：${names}，联合 ${layout.width}×${layout.height}，播放时 1:1 铺满`;
+  } else {
+    $(`#${prefix}-screen-hint`).textContent = '未检测到显示器布局';
+  }
+}
+
+function bindCanvasMode(prefix) {
+  $(`#${prefix}-mode-fixed`).addEventListener('click', () => applyCanvasMode(prefix, false));
+  $(`#${prefix}-mode-auto`).addEventListener('click', () => applyCanvasMode(prefix, true));
+}
+bindCanvasMode('new');
+bindCanvasMode('cv');
+
 $('#btn-new').addEventListener('click', () => {
   const s = screenSize();
   $('#new-width').value = String(s.w);
   $('#new-height').value = String(s.h);
   $('#new-screen-hint').textContent = screenHintText();
   fillScreenPresets('#new-screen-presets');
+  applyCanvasMode('new', false);
   $('#dlg-new').showModal();
 });
 
@@ -834,10 +888,13 @@ $('#new-use-screen').addEventListener('click', () => {
 });
 $('#form-new').addEventListener('submit', async (e) => {
   if (e.submitter?.value !== 'ok') return;
+  const auto = $('#new-mode-auto').classList.contains('on');
   project = await window.api.createProject({
     name: $('#new-name').value,
     width: Number($('#new-width').value),
     height: Number($('#new-height').value),
+    auto,
+    layout: auto ? await window.api.describeDisplayLayout() : undefined,
   });
   resetHistory();
   select(null);
@@ -852,6 +909,7 @@ $('#btn-canvas').addEventListener('click', () => {
   $('#cv-height').value = String(project.canvas.height);
   $('#cv-screen-hint').textContent = screenHintText();
   fillScreenPresets('#cv-screen-presets');
+  applyCanvasMode('cv', !!project.canvas.auto);
   $('#dlg-canvas').showModal();
 });
 
@@ -860,11 +918,23 @@ $('#cv-use-screen').addEventListener('click', () => {
   $('#cv-width').value = String(s.w);
   $('#cv-height').value = String(s.h);
 });
-$('#form-canvas').addEventListener('submit', (e) => {
+$('#form-canvas').addEventListener('submit', async (e) => {
   if (e.submitter?.value !== 'ok') return;
   pushHistory();
-  project.canvas.width = Math.max(160, Math.min(16384, Number($('#cv-width').value) || project.canvas.width));
-  project.canvas.height = Math.max(90, Math.min(16384, Number($('#cv-height').value) || project.canvas.height));
+  if ($('#cv-mode-auto').classList.contains('on')) {
+    const layout = await window.api.describeDisplayLayout();
+    project.canvas = {
+      width: layout ? layout.width : project.canvas.width,
+      height: layout ? layout.height : project.canvas.height,
+      auto: true,
+      layout: layout || project.canvas.layout,
+    };
+  } else {
+    project.canvas = {
+      width: Math.max(160, Math.min(16384, Number($('#cv-width').value) || project.canvas.width)),
+      height: Math.max(90, Math.min(16384, Number($('#cv-height').value) || project.canvas.height)),
+    };
+  }
   renderCanvas();
   renderProps();
   markDirty();

@@ -113,6 +113,11 @@
       <form method="dialog" id="form-new">
         <h2>新建项目</h2>
         <label>项目名称 <input id="new-name" type="text" value="我的屏幕墙" /></label>
+        <label>画布模式</label>
+        <div class="row">
+          <button type="button" id="new-mode-fixed" class="toggle on">固定分辨率</button>
+          <button type="button" id="new-mode-auto" class="toggle">自动（显示器布局）</button>
+        </div>
         <label>画布宽度 <input id="new-width" type="number" value="1920" min="160" max="16384" /></label>
         <label>画布高度 <input id="new-height" type="number" value="1080" min="90" max="16384" /></label>
         <div class="row">
@@ -131,6 +136,11 @@
     <dialog id="dlg-canvas">
       <form method="dialog" id="form-canvas">
         <h2>画布设置</h2>
+        <label>画布模式</label>
+        <div class="row">
+          <button type="button" id="cv-mode-fixed" class="toggle on">固定分辨率</button>
+          <button type="button" id="cv-mode-auto" class="toggle">自动（显示器布局）</button>
+        </div>
         <label>画布宽度 <input id="cv-width" type="number" min="160" max="16384" /></label>
         <label>画布高度 <input id="cv-height" type="number" min="90" max="16384" /></label>
         <div class="row">

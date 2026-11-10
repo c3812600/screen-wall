@@ -275,6 +275,23 @@ input:disabled {
   pointer-events: none;
 }
 
+/* 自动模式：显示器区域参考线 */
+.screen-guide {
+  position: absolute;
+  border: 1px dashed rgba(76, 141, 255, 0.55);
+  background: rgba(76, 141, 255, 0.04);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.screen-guide span {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  font-size: 11px;
+  color: rgba(76, 141, 255, 0.75);
+}
+
 #viewport.drag-over #drop-mask {
   display: flex;
 }

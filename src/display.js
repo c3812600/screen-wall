@@ -111,4 +111,33 @@ function pickDisplayRegion(displays, canvas) {
   );
 }
 
-module.exports = { listDisplayRegions, pickDisplayRegion };
+module.exports = { listDisplayRegions, pickDisplayRegion, describeDisplayLayout };
+
+/**
+ * 全部显示器的联合布局（自动模式用）。
+ * 坐标为 DIP：screens 已归零到联合区域左上角，bounds 为虚拟桌面绝对坐标。
+ * 竖屏/错位排列自然体现在 width/height 与 x/y 中。
+ */
+function describeDisplayLayout(displays) {
+  const list = [...(displays || [])];
+  if (!list.length) return null;
+  list.sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
+
+  const minX = Math.min(...list.map((d) => d.bounds.x));
+  const minY = Math.min(...list.map((d) => d.bounds.y));
+  const maxX = Math.max(...list.map((d) => d.bounds.x + d.bounds.width));
+  const maxY = Math.max(...list.map((d) => d.bounds.y + d.bounds.height));
+
+  return {
+    width: maxX - minX,
+    height: maxY - minY,
+    bounds: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+    screens: list.map((d, i) => ({
+      x: d.bounds.x - minX,
+      y: d.bounds.y - minY,
+      width: d.bounds.width,
+      height: d.bounds.height,
+      label: `显示器${i + 1}`,
+    })),
+  };
+}
