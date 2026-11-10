@@ -44,8 +44,8 @@ npm run dist       # 生成 dist/ScreenWall-Setup-x.y.z.exe
 推送 `v*` 格式的 tag，GitHub Actions 会自动运行自检、构建安装包并发布到 Releases：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 ## 配置与数据

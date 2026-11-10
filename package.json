@@ -1,7 +1,7 @@
 {
   "name": "screen-wall",
   "productName": "屏幕墙",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows 屏幕墙：视频 / 网站 / 图片组件编排，托盘 + 全屏播放",
   "main": "src/main.js",
   "scripts": {
