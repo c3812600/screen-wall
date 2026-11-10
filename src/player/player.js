@@ -76,11 +76,24 @@ function fitStage() {
   if (!project) return;
   const cw = project.canvas.width;
   const ch = project.canvas.height;
-  const s = Math.min(window.innerWidth / cw, window.innerHeight / ch);
-  const ox = (window.innerWidth - cw * s) / 2;
-  const oy = (window.innerHeight - ch * s) / 2;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
   stage.style.width = cw + 'px';
   stage.style.height = ch + 'px';
+
+  // 窗口尺寸与画布接近（已按显示器区域铺满）→ 精确填满，
+  // 画布坐标与屏幕像素 1:1 对应，消除居中留白带来的整体偏移
+  const nearW = Math.abs(vw - cw) <= Math.max(8, Math.round(cw * 0.02));
+  const nearH = Math.abs(vh - ch) <= Math.max(8, Math.round(ch * 0.02));
+  if (nearW && nearH) {
+    stage.style.transform = `translate(0px, 0px) scale(${vw / cw}, ${vh / ch})`;
+    return;
+  }
+
+  // 回退：单屏等比缩放（保持画面比例）
+  const s = Math.min(vw / cw, vh / ch);
+  const ox = (vw - cw * s) / 2;
+  const oy = (vh - ch * s) / 2;
   stage.style.transform = `translate(${ox}px, ${oy}px) scale(${s})`;
 }
 
@@ -88,6 +101,7 @@ function render(next) {
   project = next;
   stage.innerHTML = '';
   if (!project || !project.canvas) {
+    hint.textContent = '未配置项目 — 右键托盘图标选择「编辑」创建项目';
     hint.style.display = 'block';
     return;
   }
@@ -101,6 +115,21 @@ function render(next) {
       if (el) stage.appendChild(el);
     });
   fitStage();
+  updatePlacementHint();
+}
+
+/** 画布未匹配到显示器区域时给出诊断提示，便于排查排列/缩放设置 */
+async function updatePlacementHint() {
+  try {
+    const matched = await window.api.matchDisplayRegion(project.canvas);
+    if (matched) return;
+    const regions = await window.api.listDisplayRegions();
+    const names = regions.map((r) => r.label).join('、') || '未检测到显示器';
+    hint.textContent = `画布 ${project.canvas.width}×${project.canvas.height} 未匹配显示器区域（检测到：${names}），当前按单屏缩放显示`;
+    hint.style.display = 'block';
+  } catch {
+    /* 忽略诊断失败 */
+  }
 }
 
 window.addEventListener('resize', fitStage);

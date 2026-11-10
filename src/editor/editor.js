@@ -403,7 +403,8 @@ canvasEl.addEventListener('pointerdown', (e) => {
   } catch {
     /* 合成事件无真实指针 */
   }
-  e.preventDefault();
+  // 注意：此处不能 preventDefault——取消 pointerdown 会抑制浏览器的
+  // 兼容鼠标事件（click/dblclick），导致双击选素材失效
 });
 
 canvasEl.addEventListener('pointermove', (e) => {

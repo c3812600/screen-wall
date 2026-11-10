@@ -77,6 +77,11 @@ function createPlayer() {
     show: false,
     fullscreen: false,
     frame: false,
+    // 去掉 Windows 隐形边框（WS_THICKFRAME）与缩放框，
+    // 否则 setBounds 后实际渲染会整体偏移几个像素
+    thickFrame: false,
+    resizable: false,
+    enableLargerThanScreen: true,
     autoHideMenuBar: true,
     backgroundColor: '#000000',
     title: '屏幕墙',
@@ -90,6 +95,7 @@ function createPlayer() {
   playerWin.on('closed', () => {
     playerWin = null;
   });
+  return playerWin;
 }
 
 function openEditor() {
@@ -115,9 +121,19 @@ function openEditor() {
   });
   editorWin.on('closed', () => {
     editorWin = null;
-    if (playerWin && !HEADLESS) playerWin.show();
+    if (!HEADLESS) showPlayer();
   });
   return editorWin;
+}
+
+/** 显示播放器：窗口还在则前置，已被关闭则重建（与编辑器行为一致） */
+function showPlayer() {
+  if (playerWin && !playerWin.isDestroyed()) {
+    playerWin.show();
+    playerWin.focus();
+    return playerWin;
+  }
+  return createPlayer();
 }
 
 function buildTray() {
@@ -127,7 +143,7 @@ function buildTray() {
   tray = new Tray(image);
   const menu = Menu.buildFromTemplate([
     { label: '编辑…', click: () => openEditor() },
-    { label: '显示播放器', click: () => playerWin && playerWin.show() },
+    { label: '显示播放器', click: () => showPlayer() },
     { type: 'separator' },
     { label: '退出屏幕墙', click: () => app.quit() },
   ]);
@@ -143,6 +159,9 @@ function broadcastProject() {
 }
 
 ipcMain.handle('displays:layout', () => listDisplayRegions(screen.getAllDisplays()));
+ipcMain.handle('displays:match', (_event, canvas) =>
+  pickDisplayRegion(screen.getAllDisplays(), canvas),
+);
 
 ipcMain.handle('projects:list', () => store.listProjects());
 ipcMain.handle('projects:active', () => store.readActiveProject());
@@ -260,11 +279,17 @@ async function startVerify() {
       ];
       assert(pickDisplayRegion(gapped, { width: 3840, height: 1080 }) === null, '存在缺口时不应匹配');
 
-      const mixed = [
+      // 排列偏移 4px（真实环境第二块屏 y=4）应在容差内匹配；大偏移不应匹配
+      const nudged = [
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
-        { bounds: { x: 1920, y: 0, width: 1536, height: 864 }, scaleFactor: 1.25 },
+        { bounds: { x: 1920, y: 4, width: 1920, height: 1080 }, scaleFactor: 1 },
       ];
-      assert(pickDisplayRegion(mixed, { width: 3840, height: 1080 }) === null, '混合缩放比不应匹配');
+      assert(!!pickDisplayRegion(nudged, { width: 3840, height: 1080 }), '排列偏移 4px 应在容差内匹配');
+      const offsetBig = [
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+        { bounds: { x: 1920, y: 200, width: 1920, height: 1080 }, scaleFactor: 1 },
+      ];
+      assert(pickDisplayRegion(offsetBig, { width: 3840, height: 1080 }) === null, '大偏移不应匹配');
 
       const stacked = [
         { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
@@ -338,6 +363,15 @@ async function startVerify() {
       }));
       await new Promise((res) => setTimeout(res, 50));
       const comp = document.querySelector('#canvas .comp');
+      // pointerdown 不得被取消：取消会抑制浏览器生成 dblclick（真实环境双击失效的根因）
+      const notCancelled = comp.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true, cancelable: true, button: 0,
+        clientX: r.left + 200, clientY: r.top + 150,
+      }));
+      comp.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true, cancelable: true, button: 0,
+        clientX: r.left + 200, clientY: r.top + 150,
+      }));
       comp.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
       await new Promise((res) => setTimeout(res, 150));
       window.dispatchEvent(new KeyboardEvent('keydown', {
@@ -353,6 +387,7 @@ async function startVerify() {
       const ox = (vw - 1920 * s) / 2;
       const oy = (vh - 1080 * s) / 2;
       return {
+        notCancelled,
         count: (saved.components || []).length,
         type: c.type,
         x: c.x, y: c.y,
@@ -361,6 +396,7 @@ async function startVerify() {
         source: c.source,
       };
     })()`);
+    assert(dropDbl.notCancelled === true, 'pointerdown 不应被取消（否则浏览器不生成 dblclick）');
     assert(
       dropDbl.count === 1 && dropDbl.type === 'image',
       `拖放后应新增 1 个图片组件: ${JSON.stringify(dropDbl)}`,
@@ -437,6 +473,39 @@ async function startVerify() {
       Math.abs(playerDom.aspect - 1) < 0.02,
       `播放器画布比例失真: ${playerDom.aspect.toFixed(3)}`,
     );
+
+    // 播放器映射模式：窗口≈画布 → 精确填满（坐标 1:1）；差异大 → 等比缩放
+    playerWin.setBounds({ x: 0, y: 0, width: 1000, height: 1000 });
+    await wait(300);
+    const fill = await playerWin.webContents.executeJavaScript(`(() => {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    })()`);
+    assert(
+      Math.abs(fill.w - 1000) <= 2 && Math.abs(fill.h - 1000) <= 2,
+      `窗口≈画布时应精确填满: ${JSON.stringify(fill)}`,
+    );
+    playerWin.setBounds({ x: 0, y: 0, width: 1000, height: 500 });
+    await wait(300);
+    const boxed = await playerWin.webContents.executeJavaScript(`(() => {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    })()`);
+    assert(
+      Math.abs(boxed.w - 500) <= 2 && Math.abs(boxed.h - 500) <= 2,
+      `窗口差异大时应等比缩放: ${JSON.stringify(boxed)}`,
+    );
+
+    // 回归断言：关闭播放器后「显示播放器」应能重建窗口
+    playerWin.close();
+    await wait(300);
+    showPlayer();
+    await wait(1500);
+    const revived =
+      playerWin && !playerWin.isDestroyed()
+        ? await playerWin.webContents.executeJavaScript(`!!document.getElementById('stage')`)
+        : false;
+    assert(revived, '关闭播放器后应能通过托盘重建');
   } catch (err) {
     problems.push(`[verify] 执行断言时抛错: ${err && err.message}`);
   }
