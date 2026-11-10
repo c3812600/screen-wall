@@ -56,6 +56,17 @@ function applyWebZoom(frame, c) {
   frame.style.transform = `scale(${z})`;
 }
 
+/** 填充模式：contain 保持比例 / fill 拉伸 / cover 裁剪（默认，兼容旧项目） */
+const FIT_VALUES = ['contain', 'fill', 'cover'];
+
+function fitOf(c) {
+  return FIT_VALUES.includes(c.fit) ? c.fit : 'cover';
+}
+
+function applyFit(media, c) {
+  if (media) media.style.objectFit = fitOf(c);
+}
+
 function compById(id) {
   return (project?.components || []).find((c) => c.id === id) || null;
 }
@@ -241,10 +252,12 @@ function buildCompEl(c) {
     v.muted = c.video?.muted !== false;
     v.volume = Math.max(0, Math.min(1, Number(c.video?.volume) || 0));
     v.addEventListener('canplay', () => v.play().catch(() => {}));
+    applyFit(v, c);
     content.appendChild(v);
   } else if (c.type === 'image' && url) {
     const img = document.createElement('img');
     img.src = url;
+    applyFit(img, c);
     content.appendChild(img);
   } else if (c.type === 'website' && url) {
     const frame = document.createElement('iframe');
@@ -440,6 +453,15 @@ function renderProps() {
   const zpct = Math.round((Number(c.web?.zoom) || 1) * 100);
   $('#p-zoom').value = String(zpct);
   $('#p-zoom-text').textContent = `${zpct}%`;
+
+  // 填充模式仅对视频/图片有效（网站走页面缩放）
+  const showFit = c.type === 'video' || c.type === 'image';
+  $('#fit-block').hidden = !showFit;
+  const fit = fitOf(c);
+  $('#p-fit-contain').classList.toggle('on', fit === 'contain');
+  $('#p-fit-fill').classList.toggle('on', fit === 'fill');
+  $('#p-fit-cover').classList.toggle('on', fit === 'cover');
+
   syncGeomInputs(c);
 
   // 锁定后除「锁定/解锁」外全部禁用（不可移动和设置）
@@ -447,6 +469,7 @@ function renderProps() {
   for (const sel of [
     '#p-source', '#p-browse', '#p-x', '#p-y', '#p-w', '#p-h',
     '#p-rotation', '#p-mirror-x', '#p-mirror-y',
+    '#p-fit-contain', '#p-fit-fill', '#p-fit-cover',
     '#p-muted', '#p-volume', '#p-zoom', '#p-delete',
     '#p-z-front', '#p-z-up', '#p-z-down', '#p-z-back',
   ]) {
@@ -610,6 +633,7 @@ function addComponent(type, source = '', at = null) {
   };
   if (type === 'video') c.video = { muted: true, volume: 0 };
   if (type === 'website') c.web = { zoom: 1 };
+  if (type === 'video' || type === 'image') c.fit = 'cover';
   pushHistory();
   project.components.push(c);
   renderCanvas();
@@ -745,6 +769,7 @@ async function saveProject() {
 
 $('#btn-save').addEventListener('click', saveProject);
 $('#btn-quit').addEventListener('click', () => window.api.quit());
+$('#btn-help').addEventListener('click', () => $('#dlg-help').showModal());
 
 $('#zoom-in').addEventListener('click', () => zoomCenter(1.2));
 $('#zoom-out').addEventListener('click', () => zoomCenter(1 / 1.2));
@@ -979,6 +1004,26 @@ bindZ('#p-z-up', 'up');
 bindZ('#p-z-down', 'down');
 bindZ('#p-z-back', 'back');
 
+function updateFitPreview(c) {
+  const el = compEl(c.id);
+  if (el) applyFit(el.querySelector('video, img'), c);
+}
+
+function bindFit(id, value) {
+  $(id).addEventListener('click', () => {
+    const c = compById(selectedId);
+    if (!c) return;
+    pushHistory();
+    c.fit = value;
+    updateFitPreview(c);
+    renderProps();
+    markDirty();
+  });
+}
+bindFit('#p-fit-contain', 'contain');
+bindFit('#p-fit-fill', 'fill');
+bindFit('#p-fit-cover', 'cover');
+
 $('#p-muted').addEventListener('change', () => {
   const c = compById(selectedId);
   if (!c) return;
@@ -1064,6 +1109,11 @@ window.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   const k = String(e.key || '').toLowerCase();
 
+  if (k === 'f1') {
+    e.preventDefault();
+    $('#dlg-help').showModal();
+    return;
+  }
   if (mod && k === 's') {
     e.preventDefault();
     saveProject();

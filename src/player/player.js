@@ -30,6 +30,11 @@ function applyWebZoom(frame, c) {
   frame.style.transform = `scale(${z})`;
 }
 
+/** 填充模式：contain 保持比例 / fill 拉伸 / cover 裁剪（默认） */
+function fitOf(c) {
+  return ['contain', 'fill', 'cover'].includes(c.fit) ? c.fit : 'cover';
+}
+
 function buildComponent(c) {
   const el = document.createElement('div');
   el.className = 'comp';
@@ -52,6 +57,7 @@ function buildComponent(c) {
     const video = c.video || {};
     media.muted = video.muted !== false;
     media.volume = Math.max(0, Math.min(1, Number(video.volume) || 0));
+    media.style.objectFit = fitOf(c);
     media.addEventListener('canplay', () => {
       media.play().catch(() => {});
     });
@@ -59,6 +65,7 @@ function buildComponent(c) {
     media = document.createElement('img');
     media.src = url;
     media.draggable = false;
+    media.style.objectFit = fitOf(c);
   } else if (c.type === 'website') {
     media = document.createElement('iframe');
     media.src = url;

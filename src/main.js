@@ -527,6 +527,54 @@ async function startVerify() {
     assert(kbTest.afterUndo === kbTest.before, `Ctrl+Z 应撤销粘贴: ${JSON.stringify(kbTest)}`);
     assert(kbTest.afterRedo === kbTest.before + 1, `Ctrl+Y 应重做粘贴: ${JSON.stringify(kbTest)}`);
 
+    // 填充模式断言：切换后预览元素 object-fit 同步（选未锁定的图片组件）
+    const fitTest = await editorWin.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const comp = document.querySelector('#canvas .comp:not(.locked)');
+      const id = comp.dataset.id;
+      comp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 60, clientY: 60 }));
+      comp.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, clientX: 60, clientY: 60 }));
+      await sleep(30);
+      document.getElementById('p-fit-contain').click();
+      await sleep(30);
+      const media = document.querySelector('#canvas .comp[data-id="' + id + '"] img, #canvas .comp[data-id="' + id + '"] video');
+      return {
+        style: media ? media.style.objectFit : null,
+        containOn: document.getElementById('p-fit-contain').classList.contains('on'),
+        blockVisible: !document.getElementById('fit-block').hidden,
+      };
+    })()`);
+    assert(
+      fitTest.style === 'contain' && fitTest.containOn && fitTest.blockVisible,
+      `填充模式切换未生效: ${JSON.stringify(fitTest)}`,
+    );
+
+    // 帮助弹窗断言：按钮与 F1 均可打开
+    const helpTest = await editorWin.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const dlg = document.getElementById('dlg-help');
+      document.getElementById('btn-help').click();
+      await sleep(30);
+      const openedByButton = dlg.open;
+      dlg.close();
+      await sleep(30);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1', bubbles: true, cancelable: true }));
+      await sleep(30);
+      const openedByKey = dlg.open;
+      if (openedByKey) dlg.close();
+      return {
+        openedByButton,
+        openedByKey,
+        inToolbar: !!document.querySelector('#toolbar #btn-help'),
+        kbdCount: document.querySelectorAll('#dlg-help kbd').length,
+      };
+    })()`);
+    assert(
+      helpTest.openedByButton && helpTest.openedByKey && helpTest.inToolbar,
+      `快捷键帮助应可打开且入口在工具栏: ${JSON.stringify(helpTest)}`,
+    );
+    assert(helpTest.kbdCount >= 10, `帮助内容键位标注应齐全: ${JSON.stringify(helpTest)}`);
+
     // 功能流程：新建 → 视频 + 网站（页面缩放）保存 → 回读校验
     const flow = await editorWin.webContents.executeJavaScript(`(async () => {
       const created = await window.api.createProject({ name: '流程测试', width: 1000, height: 1000 });
@@ -534,6 +582,7 @@ async function startVerify() {
         id: 't1', type: 'video', source: 'C:\\\\media\\\\demo.mp4',
         x: 10, y: 20, width: 640, height: 360,
         rotation: 90, mirrorX: true, mirrorY: false, zIndex: 1, locked: true,
+        fit: 'fill',
         video: { muted: false, volume: 0.5 }
       });
       created.components.push({
@@ -550,6 +599,7 @@ async function startVerify() {
         idKept: saved && saved.id === created.id,
         canvas: !!back && back.canvas.width === 1000 && back.canvas.height === 1000,
         component: c.type === 'video' && c.rotation === 90 && c.mirrorX === true && c.locked === true &&
+          c.fit === 'fill' &&
           c.video && c.video.muted === false && c.video.volume === 0.5,
         webZoom: w.type === 'website' && w.web && w.web.zoom === 1.5,
       };
@@ -572,15 +622,18 @@ async function startVerify() {
     const playerDom = await playerWin.webContents.executeJavaScript(`(() => {
       const r = document.getElementById('stage').getBoundingClientRect();
       const f = document.querySelector('#stage iframe');
+      const v = document.querySelector('#stage video');
       return {
         comps: document.querySelectorAll('#stage .comp').length,
-        hasVideo: !!document.querySelector('#stage video'),
+        hasVideo: !!v,
+        videoFit: v ? v.style.objectFit : null,
         iframe: f ? { transform: f.style.transform, width: parseFloat(f.style.width) } : null,
         aspect: r.height > 0 ? r.width / r.height : 0,
       };
     })()`);
     assert(playerDom.comps === 2, `播放器应渲染 2 个组件，实际 ${playerDom.comps}`);
     assert(playerDom.hasVideo, '播放器未渲染 video 元素');
+    assert(playerDom.videoFit === 'fill', `播放器视频填充模式应为 fill，实际 ${playerDom.videoFit}`);
     assert(
       playerDom.iframe && playerDom.iframe.transform === 'scale(1.5)' &&
         Math.abs(playerDom.iframe.width - 100 / 1.5) < 0.01,

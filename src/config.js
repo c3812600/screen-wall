@@ -26,6 +26,7 @@ function clampInt(value, min, max, fallback) {
  *   components: [{
  *     id, type: 'video'|'image'|'website', source,
  *     x, y, width, height, rotation, mirrorX, mirrorY, zIndex, locked,
+ *     fit: 'cover'|'contain'|'fill'   // 仅 video/image 填充模式：裁剪(默认)/保持比例/拉伸
  *     video: { muted, volume }        // 仅 video
  *     web: { zoom }                   // 仅 website，页面缩放（1 = 100%）
  *   }],

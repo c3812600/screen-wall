@@ -14,7 +14,8 @@
       <button id="btn-canvas">画布设置</button>
       <span id="project-meta" class="meta">未打开项目</span>
       <span id="save-status" class="meta"></span>
-      <button id="btn-quit" class="push">退出</button>
+      <button id="btn-help" class="push" title="快捷键与操作说明（F1）">快捷键</button>
+      <button id="btn-quit">退出</button>
     </header>
 
     <main id="layout">
@@ -29,11 +30,8 @@
         <div class="palette-item" draggable="true" data-type="website">
           <span class="pi-icon">◎</span> 网站
         </div>
-        <p class="tip">把组件或文件拖到画布上添加</p>
-        <p class="tip">快捷键：Ctrl+C/X/V/D 复制剪切粘贴再制，Ctrl+Z / Ctrl+Y 撤销重做，Ctrl+S 保存，Delete 删除</p>
         <h3 class="layer-title">图层</h3>
         <div id="layer-list"></div>
-        <p class="tip">顶层在上；点击选中，「锁」锁定后组件不可移动和设置</p>
       </aside>
 
       <section id="viewport">
@@ -68,6 +66,14 @@
           <div class="row">
             <button id="p-mirror-x" class="toggle">镜像水平</button>
             <button id="p-mirror-y" class="toggle">镜像垂直</button>
+          </div>
+          <div id="fit-block">
+            <label>填充模式</label>
+            <div class="row">
+              <button id="p-fit-contain" class="toggle" title="保持比例完整显示，可能留边">保持比例</button>
+              <button id="p-fit-fill" class="toggle" title="拉伸填满，比例不一致时变形">拉伸</button>
+              <button id="p-fit-cover" class="toggle" title="填满并裁剪（默认）">裁剪</button>
+            </div>
           </div>
           <label>图层顺序</label>
           <div class="row">
@@ -140,11 +146,42 @@
     </dialog>
 
     <dialog id="dlg-open">
-      <div id="open-list-wrap">
+      <form method="dialog">
         <h2>打开项目</h2>
         <div id="open-list"></div>
         <menu><button value="cancel">关闭</button></menu>
-      </div>
+      </form>
+    </dialog>
+
+    <dialog id="dlg-help">
+      <form method="dialog">
+        <h2>快捷键与操作</h2>
+
+        <div class="help-group">
+          <h3>文件</h3>
+          <div class="help-row"><span class="keys"><kbd>Ctrl</kbd><i>+</i><kbd>S</kbd></span><span>保存项目（播放器即时生效）</span></div>
+        </div>
+
+        <div class="help-group">
+          <h3>编辑</h3>
+          <div class="help-row"><span class="keys"><kbd>Ctrl</kbd><i>+</i><kbd>C</kbd><i>/</i><kbd>X</kbd><i>/</i><kbd>V</kbd></span><span>复制 / 剪切 / 粘贴</span></div>
+          <div class="help-row"><span class="keys"><kbd>Ctrl</kbd><i>+</i><kbd>D</kbd></span><span>再制组件</span></div>
+          <div class="help-row"><span class="keys"><kbd>Ctrl</kbd><i>+</i><kbd>Z</kbd></span><span>撤销</span></div>
+          <div class="help-row"><span class="keys"><kbd>Ctrl</kbd><i>+</i><kbd>Y</kbd></span><span>重做</span></div>
+          <div class="help-row"><span class="keys"><kbd>Delete</kbd></span><span>删除选中组件（锁定组件除外）</span></div>
+        </div>
+
+        <div class="help-group">
+          <h3>画布操作</h3>
+          <div class="help-row"><span class="keys"><kbd>拖放</kbd></span><span>从组件面板或资源管理器添加组件到鼠标位置</span></div>
+          <div class="help-row"><span class="keys"><kbd>拖动</kbd></span><span>移动组件；白色手柄缩放，顶部圆点旋转</span></div>
+          <div class="help-row"><span class="keys"><kbd>滚轮</kbd></span><span>缩放视图（以光标为中心）</span></div>
+          <div class="help-row"><span class="keys"><kbd>拖空白</kbd></span><span>平移视图</span></div>
+          <div class="help-row"><span class="keys"><kbd>双击</kbd></span><span>组件直接选择素材</span></div>
+        </div>
+
+        <menu><button value="cancel" class="primary">知道了</button></menu>
+      </form>
     </dialog>
 
     <script src="editor.js"></script>

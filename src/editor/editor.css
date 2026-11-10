@@ -543,3 +543,62 @@ dialog menu {
   color: #8b8e94;
   font-size: 12px;
 }
+
+/* ---------- 快捷键帮助 ---------- */
+
+#dlg-help {
+  min-width: 460px;
+}
+
+.help-group {
+  margin-top: 16px;
+}
+
+.help-group h3 {
+  margin: 0 0 6px;
+  color: #4c8dff;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.help-row {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid #34363b;
+}
+
+.help-row:last-child {
+  border-bottom: 0;
+}
+
+.help-row .keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.help-row .keys i {
+  color: #6b6e74;
+  font-style: normal;
+  font-size: 11px;
+}
+
+.help-row span:last-child {
+  color: #b6b8bd;
+}
+
+dialog kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 7px;
+  background: #1a1b1e;
+  border: 1px solid #46484d;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font: 500 12px/1.4 ui-monospace, Consolas, monospace;
+  color: #d6d8dc;
+  text-align: center;
+}
