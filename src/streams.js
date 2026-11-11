@@ -43,25 +43,31 @@ class StreamService {
     this.streams = new Map();
     this.server = null;
     this.port = 0;
+    this.ready = null;
     this.ffmpeg = findFfmpeg();
   }
 
+  /** 启动本地 HTTP 分发服务；返回在端口就绪后 resolve 的 Promise */
   start() {
-    if (this.server) return;
+    if (this.ready) return this.ready;
     this.server = http.createServer((req, res) => this._onRequest(req, res));
-    this.server.listen(0, '127.0.0.1', () => {
-      this.port = this.server.address().port;
+    this.ready = new Promise((resolve) => {
+      this.server.listen(0, '127.0.0.1', () => {
+        this.port = this.server.address().port;
+        resolve();
+      });
     });
+    return this.ready;
   }
 
   hashOf(source) {
     return crypto.createHash('sha1').update(String(source)).digest('hex').slice(0, 12);
   }
 
-  /** 确保流在拉取中，返回本地 HTTP 地址（渲染端 fetch 消费） */
-  open(source) {
+  /** 确保流在拉取中，返回本地 HTTP 地址（渲染端 fetch 消费）；端口就绪后才返回 */
+  async open(source) {
     if (!isStreamUrl(source)) return null;
-    this.start();
+    await this.start();
     const key = this.hashOf(source);
     let st = this.streams.get(key);
     if (!st) {
@@ -87,6 +93,9 @@ class StreamService {
   }
 
   _spawn(st) {
+    // 新一代拉流清掉上一代缓冲：避免迟到客户端回放到混合两次会话的 init/分片
+    st.head = [];
+    st.headLen = 0;
     const args = ['-hide_banner', '-loglevel', 'error', '-nostdin'];
     if (/^rtsp/i.test(st.source)) args.push('-rtsp_transport', 'tcp');
     args.push('-i', st.source);
@@ -151,6 +160,9 @@ class StreamService {
         try { res.end(); } catch { /* 忽略 */ }
       }
       st.clients.clear();
+      // 本代缓冲作废：重连后的新客户端只接新会话数据，不回放旧 init/分片
+      st.head = [];
+      st.headLen = 0;
       this._scheduleRestart(st);
     });
   }
@@ -165,7 +177,7 @@ class StreamService {
   _scheduleRestart(st, delay) {
     if (st.timer) return;
     st.restarts += 1;
-    if (st.restarts > 40) return; // 放弃自动重连，下次 open 时重置
+    // 不放弃重连：退避封顶 30s，断流自愈（摄像头重启/网络抖动后自动跟上）
     const wait = delay || Math.min(30000, 1000 * Math.pow(2, Math.min(st.restarts, 5)));
     st.timer = setTimeout(() => {
       st.timer = null;
@@ -186,6 +198,8 @@ class StreamService {
       'Cache-Control': 'no-store, no-cache, must-revalidate',
       Connection: 'keep-alive',
     });
+    // 先把响应头推给客户端：空头缓冲时 fetch 也能立刻返回，不等首字节
+    res.flushHeaders();
     // 先回放已缓冲头部（初始化段 + 最近数据），再接实时流
     for (const c of st.head) {
       try { res.write(c); } catch { /* 忽略 */ }

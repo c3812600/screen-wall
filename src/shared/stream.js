@@ -75,6 +75,8 @@
           append = makeAppender(sb);
           for (const c of head) append(c);
           head = [];
+          // 首帧数据就绪即起播，不等整段流结束（直播流不会自然结束）
+          video.play().catch(() => {});
         } else if (headLen > 512 * 1024) {
           // 服务端将降级转码，重连后可播
           try { reader.cancel(); } catch { /* 忽略 */ }
@@ -96,16 +98,18 @@
     if (!Codec.isStreamUrl(source)) return;
     video.dataset.stream = '1';
     try {
-      const info = await window.api.openStream(source);
-      if (!info || !info.url) return;
       for (let attempt = 0; attempt < 200; attempt++) {
         if (!video.isConnected && attempt > 0) return;
-        try {
-          const state = await consumeOnce(video, info.url);
-          if (state === 'detached') return;
-          video.play().catch(() => {});
-        } catch {
-          /* 落到重试 */
+        // 每轮都重新取地址：兜底服务端口/流进程状态变化，避免拿着失效 URL 死循环
+        const info = await window.api.openStream(source);
+        if (info && info.url) {
+          try {
+            const state = await consumeOnce(video, info.url);
+            if (state === 'detached') return;
+            video.play().catch(() => {});
+          } catch {
+            /* 落到重试 */
+          }
         }
         await new Promise((r) => setTimeout(r, 2000));
       }

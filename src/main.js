@@ -88,10 +88,27 @@ function applyPlayerPlacement() {
   }
 }
 
+/** 启动时的目标显示区域（自动模式 = 联合布局；固定模式 = 匹配的拼接区域） */
+function playerStartupRegion() {
+  const project = store.readActiveProject();
+  const canvas = project && project.canvas;
+  if (canvas && canvas.auto) {
+    const layout = describeDisplayLayout(screen.getAllDisplays());
+    if (layout) return layout.bounds;
+    return null;
+  }
+  const region = pickDisplayRegion(screen.getAllDisplays(), canvas);
+  return region ? region.dipBounds : null;
+}
+
 function createPlayer() {
+  // 先算好最终显示区域再建窗口：避免"隐藏窗口 800×600 先渲染、
+  // 真实尺寸后到"导致首帧不可见（启动黑屏）
+  const bounds = HEADLESS ? null : playerStartupRegion();
   playerWin = new BrowserWindow({
     show: false,
-    fullscreen: false,
+    fullscreen: !HEADLESS && !bounds,
+    ...(bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : {}),
     frame: false,
     // 去掉 Windows 隐形边框（WS_THICKFRAME）与缩放框，
     // 否则 setBounds 后实际渲染会整体偏移几个像素
@@ -103,15 +120,27 @@ function createPlayer() {
     title: '屏幕墙',
     webPreferences: windowWebPrefs(),
   });
-  playerWin.loadFile(path.join(__dirname, 'player', 'player.html'));
-  playerWin.once('ready-to-show', () => {
+  const win = playerWin;
+  win.loadFile(path.join(__dirname, 'player', 'player.html'));
+  win.once('ready-to-show', () => {
+    if (!HEADLESS) win.show();
     applyPlayerPlacement();
-    if (!HEADLESS) playerWin.show();
   });
-  playerWin.on('closed', () => {
-    playerWin = null;
+  // 显示/恢复时重发一次渲染：兜底首次渲染不可见（黑屏）的情况
+  win.on('show', () => {
+    if (!HEADLESS && playerWin === win && !win.isDestroyed()) {
+      win.webContents.send('project:changed', store.readActiveProject());
+    }
   });
-  return playerWin;
+  // close 即摘除引用（不等 closed）：showPlayer() 不会拿到正在销毁的窗口，
+  // 旧窗口迟到的 closed 也不会误清新窗口的引用
+  win.on('close', () => {
+    if (playerWin === win) playerWin = null;
+  });
+  win.on('closed', () => {
+    if (playerWin === win) playerWin = null;
+  });
+  return win;
 }
 
 function openEditor() {
@@ -644,6 +673,28 @@ async function startVerify() {
       `画布模式切换未生效: ${JSON.stringify(modeTest)}`,
     );
 
+    // 流服务断言：openStream 返回的地址必须端口就绪且可访问。
+    // 回归启动黑屏根因：listen 回调前返回 port 0，渲染端拿失效 URL 无限重试。
+    // 此处必须是本进程第一次 openStream（首个流用例），才能覆盖首次调用竞态。
+    const streamReady = await editorWin.webContents.executeJavaScript(`(async () => {
+      const info = await window.api.openStream('rtsp://127.0.0.1:9/port-check');
+      if (!info || !info.url) return null;
+      const port = Number(new URL(info.url).port || 0);
+      let status = 0;
+      try {
+        const res = await fetch(info.url);
+        status = res.status;
+        try { if (res.body) await res.body.cancel(); } catch { /* 忽略 */ }
+      } catch {
+        status = -1;
+      }
+      return { port, status };
+    })()`);
+    assert(
+      streamReady && streamReady.port > 0 && streamReady.status === 200,
+      `流服务地址未就绪（端口竞态回归）: ${JSON.stringify(streamReady)}`,
+    );
+
     // 流媒体断言：rtsp 来源渲染为流视频（data-stream）且音量设置禁用
     const streamTest = await editorWin.webContents.executeJavaScript(`(async () => {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -793,18 +844,18 @@ async function startVerify() {
       `自动模式应按窗口精确铺满: ${JSON.stringify(autoStage)}`,
     );
 
-    // 回归断言：关闭播放器后「显示播放器」应能重建窗口
+    // 回归断言：关闭播放器后「显示播放器」应能重建窗口（用返回的新窗口，不碰垂死旧窗口）
     playerWin.close();
     await wait(300);
-    showPlayer();
+    const rebuilt = showPlayer();
     await wait(1500);
     const revived =
-      playerWin && !playerWin.isDestroyed()
-        ? await playerWin.webContents.executeJavaScript(`!!document.getElementById('stage')`)
+      rebuilt && !rebuilt.isDestroyed()
+        ? await rebuilt.webContents.executeJavaScript(`!!document.getElementById('stage')`)
         : false;
     assert(revived, '关闭播放器后应能通过托盘重建');
   } catch (err) {
-    problems.push(`[verify] 执行断言时抛错: ${err && err.message}`);
+    problems.push(`[verify] 执行断言时抛错: ${err && (err.stack || err.message)}`);
   }
 
   if (problems.length) {
