@@ -1,7 +1,7 @@
 {
   "name": "screen-wall",
   "productName": "屏幕墙",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Windows 屏幕墙：视频 / 网站 / 图片组件编排，托盘 + 全屏播放",
   "main": "src/main.js",
   "scripts": {
@@ -15,7 +15,8 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^45.2.3",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "ffmpeg-static": "^5.3.0"
   },
   "build": {
     "appId": "com.c3812600.screenwall",
@@ -28,6 +29,12 @@
     "files": [
       "src/**/*",
       "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg.exe",
+        "to": "ffmpeg.exe"
+      }
     ],
     "win": {
       "target": [

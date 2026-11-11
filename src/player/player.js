@@ -9,7 +9,7 @@ let project = null;
 function toDisplayUrl(src) {
   const s = String(src || '').trim();
   if (!s) return '';
-  if (/^(https?:|file:|data:|about:)/i.test(s)) return s;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s; // 任意协议（http/file/rtsp…）原样放行
   let p = s.replace(/\\/g, '/');
   if (!/^\//.test(p)) p = '/' + p;
   return encodeURI('file://' + p);
@@ -49,7 +49,6 @@ function buildComponent(c) {
   let media;
   if (c.type === 'video') {
     media = document.createElement('video');
-    media.src = url;
     media.autoplay = true;
     media.loop = true;
     media.playsInline = true;
@@ -58,9 +57,15 @@ function buildComponent(c) {
     media.muted = video.muted !== false;
     media.volume = Math.max(0, Math.min(1, Number(video.volume) || 0));
     media.style.objectFit = fitOf(c);
-    media.addEventListener('canplay', () => {
-      media.play().catch(() => {});
-    });
+    if (window.StreamVideo && window.StreamVideo.isStreamUrl(c.source)) {
+      media.dataset.stream = '1';
+      window.StreamVideo.attach(media, c.source);
+    } else {
+      media.src = url;
+      media.addEventListener('canplay', () => {
+        media.play().catch(() => {});
+      });
+    }
   } else if (c.type === 'image') {
     media = document.createElement('img');
     media.src = url;

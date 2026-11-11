@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   listDisplayRegions: () => ipcRenderer.invoke('displays:layout'),
   describeDisplayLayout: () => ipcRenderer.invoke('displays:describe'),
   matchDisplayRegion: (canvas) => ipcRenderer.invoke('displays:match', canvas),
+  openStream: (source) => ipcRenderer.invoke('streams:open', source),
   listProjects: () => ipcRenderer.invoke('projects:list'),
   getActiveProject: () => ipcRenderer.invoke('projects:active'),
   loadProject: (id) => ipcRenderer.invoke('projects:load', id),

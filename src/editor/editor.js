@@ -35,7 +35,7 @@ function uid() {
 function toDisplayUrl(src) {
   const s = String(src || '').trim();
   if (!s) return '';
-  if (/^(https?:|file:|data:|about:)/i.test(s)) return s;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return s; // 任意协议（http/file/rtsp…）原样放行
   let p = s.replace(/\\/g, '/');
   if (!/^\//.test(p)) p = '/' + p;
   return encodeURI('file://' + p);
@@ -247,14 +247,19 @@ function buildCompEl(c) {
   const url = toDisplayUrl(c.source);
   if (c.type === 'video' && url) {
     const v = document.createElement('video');
-    v.src = url;
     v.loop = true;
     v.autoplay = true;
     v.playsInline = true;
     v.preload = 'auto';
     v.muted = c.video?.muted !== false;
     v.volume = Math.max(0, Math.min(1, Number(c.video?.volume) || 0));
-    v.addEventListener('canplay', () => v.play().catch(() => {}));
+    if (window.StreamVideo && window.StreamVideo.isStreamUrl(c.source)) {
+      v.dataset.stream = '1';
+      window.StreamVideo.attach(v, c.source);
+    } else {
+      v.src = url;
+      v.addEventListener('canplay', () => v.play().catch(() => {}));
+    }
     applyFit(v, c);
     content.appendChild(v);
   } else if (c.type === 'image' && url) {
@@ -497,6 +502,15 @@ function renderProps() {
     $(sel).disabled = locked;
   }
   $('#p-lock').classList.toggle('on', locked);
+
+  // 流媒体源（rtsp 等）无声：音量设置禁用
+  const isStream =
+    c.type === 'video' && window.StreamVideo && window.StreamVideo.isStreamUrl(c.source);
+  if (isStream) {
+    $('#p-muted').disabled = true;
+    $('#p-volume').disabled = true;
+  }
+  $('#stream-note').hidden = !isStream;
 }
 
 function syncGeomInputs(c) {

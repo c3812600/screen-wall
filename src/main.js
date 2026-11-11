@@ -13,6 +13,8 @@ const {
 const path = require('node:path');
 const os = require('node:os');
 const ConfigStore = require('./config');
+const StreamService = require('./streams');
+const { parseAvcCodec, isStreamUrl } = require('./shared/codecs');
 const { listDisplayRegions, pickDisplayRegion, describeDisplayLayout } = require('./display');
 
 const SMOKE = process.argv.includes('--smoke-test');
@@ -29,6 +31,7 @@ if (HEADLESS) {
 }
 
 const store = new ConfigStore(app.getPath('userData'));
+const streamService = new StreamService();
 
 let playerWin = null;
 let editorWin = null;
@@ -176,6 +179,7 @@ ipcMain.handle('displays:describe', () => describeDisplayLayout(screen.getAllDis
 ipcMain.handle('displays:match', (_event, canvas) =>
   pickDisplayRegion(screen.getAllDisplays(), canvas),
 );
+ipcMain.handle('streams:open', (_event, source) => streamService.open(source));
 
 ipcMain.handle('projects:list', () => store.listProjects());
 ipcMain.handle('projects:active', () => store.readActiveProject());
@@ -327,6 +331,21 @@ async function startVerify() {
         layout.screens[0].x === 0 && layout.screens[0].y === 300 &&
           layout.screens[1].x === 1920 && layout.screens[1].y === 0,
         `布局坐标归一化错误: ${JSON.stringify(layout.screens)}`,
+      );
+
+      // 流媒体：流地址识别与 H.264 codec 解析（avcC → avc1.64001f）
+      const fakeInit = Buffer.concat([
+        Buffer.from('ftypisom'),
+        Buffer.from('avcC'),
+        Buffer.from([1, 0x64, 0x00, 0x1f]),
+        Buffer.alloc(16),
+      ]);
+      assert(parseAvcCodec(fakeInit) === 'avc1.64001f', `avcC 解析错误: ${parseAvcCodec(fakeInit)}`);
+      assert(parseAvcCodec(Buffer.from('hvcCtest')) === null, '非 H.264 应返回 null');
+      assert(
+        isStreamUrl('rtsp://admin:pw@192.168.1.1/cam') && isStreamUrl('rtmp://x/y') &&
+          !isStreamUrl('C:\\media\\a.mp4') && !isStreamUrl('https://example.com'),
+        '流地址识别错误',
       );
     }
 
@@ -623,6 +642,34 @@ async function startVerify() {
     assert(
       modeTest.disabled && modeTest.autoOn && modeTest.hintLen > 5 && modeTest.enabled,
       `画布模式切换未生效: ${JSON.stringify(modeTest)}`,
+    );
+
+    // 流媒体断言：rtsp 来源渲染为流视频（data-stream）且音量设置禁用
+    const streamTest = await editorWin.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const vp = document.getElementById('viewport');
+      const r = vp.getBoundingClientRect();
+      const dt = new DataTransfer();
+      dt.setData('text/plain', JSON.stringify({ kind: 'new', type: 'video' }));
+      vp.dispatchEvent(new DragEvent('drop', {
+        dataTransfer: dt, clientX: r.left + 250, clientY: r.top + 200,
+        bubbles: true, cancelable: true,
+      }));
+      await sleep(60);
+      const src = document.getElementById('p-source');
+      src.value = 'rtsp://127.0.0.1:9/stream';
+      src.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(200);
+      const video = document.querySelector('#canvas .comp video');
+      return {
+        hasVideo: !!video,
+        isStream: video ? video.dataset.stream === '1' : false,
+        volDisabled: document.getElementById('p-volume').disabled,
+      };
+    })()`);
+    assert(
+      streamTest.hasVideo && streamTest.isStream && streamTest.volDisabled,
+      `流媒体组件渲染未生效: ${JSON.stringify(streamTest)}`,
     );
 
     // 功能流程：新建 → 视频 + 网站（页面缩放）保存 → 回读校验
